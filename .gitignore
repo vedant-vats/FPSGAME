@@ -1,0 +1,15 @@
+# Unreal
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+# IDE
+.vs/
+.idea/
+*.sln
+*.suo
+*.user
+# Misc
+Claude outputs/

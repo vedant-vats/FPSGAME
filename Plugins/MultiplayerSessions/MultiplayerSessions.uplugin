@@ -1,0 +1,31 @@
+{
+	"FileVersion": 3,
+	"Version": 2,
+	"VersionName": "2.0",
+	"FriendlyName": "MultiplayerSessions",
+	"Description": "Create, find, join and destroy online sessions (Steam or LAN). Based on the session plugin from Stephen Ulibarri's UE multiplayer course; ported to UE 5.6 and extended by Vedant Vats.",
+	"Category": "Networking",
+	"CreatedBy": "Vedant Vats",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EngineVersion": "5.6.0",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "MultiplayerSessions",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{ "Name": "OnlineSubsystem", "Enabled": true },
+		{ "Name": "OnlineSubsystemUtils", "Enabled": true },
+		{ "Name": "OnlineSubsystemSteam", "Enabled": true },
+		{ "Name": "SteamSockets", "Enabled": true }
+	]
+}
