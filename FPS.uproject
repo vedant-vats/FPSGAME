@@ -58,6 +58,10 @@
 		{
 			"Name": "CLM_MenuSystem",
 			"Enabled": true
+		},
+		{
+			"Name": "GameplayAbilities",
+			"Enabled": true
 		}
 	]
 }

@@ -18,13 +18,17 @@ public class FPS : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
-			"Slate"
+			"Slate",
+			"GameplayAbilities",
+			"GameplayTags",
+			"GameplayTasks"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
 		PublicIncludePaths.AddRange(new string[] {
 			"FPS",
+			"FPS/Hero",
 			"FPS/Variant_Horror",
 			"FPS/Variant_Horror/UI",
 			"FPS/Variant_Shooter",
