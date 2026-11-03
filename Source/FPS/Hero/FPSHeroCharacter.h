@@ -13,6 +13,10 @@ class UFPSInputConfig;
 class UInputAction;
 class UInputMappingContext;
 class UCameraComponent;
+class UFPSWeaponComponent;
+class USphereComponent;
+class UCapsuleComponent;
+class UShapeComponent;
 struct FInputActionValue;
 
 /**
@@ -30,6 +34,8 @@ public:
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 	UFPSAttributeSet* GetAttributeSet() const;
 
+	virtual void PostInitializeComponents() override;
+	virtual void BeginPlay() override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void OnRep_PlayerState() override;
 	virtual void PawnClientRestart() override;
@@ -39,6 +45,13 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Hero")
 	bool IsDead() const { return bIsDead; }
+
+	/** For anim BPs (ABP_FP_Hero reads the camera to aim the arms). */
+	UFUNCTION(BlueprintPure, Category = "Hero")
+	UCameraComponent* GetFirstPersonCamera() const { return FirstPersonCamera; }
+
+	UFUNCTION(BlueprintPure, Category = "Hero")
+	USkeletalMeshComponent* GetFirstPersonMesh() const { return FirstPersonMesh; }
 
 	/** Server only. Called by the attribute set when health hits 0. */
 	void HandleDeath();
@@ -53,16 +66,38 @@ public:
 	void DebugDamageSelf(float Amount);
 
 protected:
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Components")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
 
-	/** Arms mesh, owner only. Set the template's FP arms here in the BP. */
+	/** Full-body FP mesh, owner only (template style). Camera sits on its head bone, so it MUST have a mesh. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<USkeletalMeshComponent> FirstPersonMesh;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<USkeletalMeshComponent> WeaponMeshFP;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<USkeletalMeshComponent> WeaponMeshTP;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UFPSWeaponComponent> WeaponComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hitboxes")
+	TObjectPtr<USphereComponent> HeadHitbox;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hitboxes")
+	TObjectPtr<UCapsuleComponent> BodyHitbox;
 
 	// ---- Input ----
 	UPROPERTY(EditDefaultsOnly, Category = "Input")
 	TObjectPtr<UInputMappingContext> DefaultMappingContext;
+
+	/** Extra contexts, e.g. IMC_Weapons (has IA_Shoot). */
+	UPROPERTY(EditDefaultsOnly, Category = "Input")
+	TArray<TObjectPtr<UInputMappingContext>> AdditionalMappingContexts;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Input")
+	TObjectPtr<UInputAction> MouseLookAction;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Input")
 	TObjectPtr<UInputAction> MoveAction;
@@ -92,6 +127,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bShowDebugReadout = true;
 
+	/** Bones hidden on the FP mesh so the camera doesn't see inside the head. */
+	UPROPERTY(EditDefaultsOnly, Category = "Components")
+	TArray<FName> FirstPersonHiddenBones = { TEXT("head") };
+
 	UPROPERTY(ReplicatedUsing = OnRep_IsDead, BlueprintReadOnly, Category = "Hero")
 	bool bIsDead = false;
 
@@ -99,6 +138,7 @@ protected:
 	void OnRep_IsDead();
 
 private:
+	static void ConfigureHitbox(UShapeComponent* Hitbox);
 	void InitAbilitySystem();
 	void ApplyDeathState();
 	void Respawn();

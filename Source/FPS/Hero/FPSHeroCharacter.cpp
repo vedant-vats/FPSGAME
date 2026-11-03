@@ -5,6 +5,9 @@
 #include "FPSInputConfig.h"
 #include "FPSDamageEffect.h"
 #include "FPSGameplayTags.h"
+#include "FPSWeaponComponent.h"
+#include "FPSCollision.h"
+#include "Components/SphereComponent.h"
 
 #include "AbilitySystemComponent.h"
 #include "Camera/CameraComponent.h"
@@ -28,22 +31,95 @@ AFPSHeroCharacter::AFPSHeroCharacter()
 
 	GetCapsuleComponent()->InitCapsuleSize(34.f, 96.f);
 
-	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
-	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
-	FirstPersonCamera->SetRelativeLocation(FVector(0.f, 0.f, 64.f));
-	FirstPersonCamera->bUsePawnControlRotation = true;
-
+	// Same first-person setup as the 5.6 template: full-body FP mesh, camera on its head bone.
 	FirstPersonMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("FirstPersonMesh"));
-	FirstPersonMesh->SetupAttachment(FirstPersonCamera);
+	FirstPersonMesh->SetupAttachment(GetMesh());
 	FirstPersonMesh->SetOnlyOwnerSee(true);
+	FirstPersonMesh->FirstPersonPrimitiveType = EFirstPersonPrimitiveType::FirstPerson;
 	FirstPersonMesh->bCastDynamicShadow = false;
 	FirstPersonMesh->CastShadow = false;
 	FirstPersonMesh->SetCollisionProfileName(TEXT("NoCollision"));
 
+	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
+	FirstPersonCamera->SetupAttachment(FirstPersonMesh, FName(TEXT("head")));
+	FirstPersonCamera->SetRelativeLocationAndRotation(FVector(-2.8f, 5.89f, 0.f), FRotator(0.f, 90.f, -90.f));
+	FirstPersonCamera->bUsePawnControlRotation = true;
+	FirstPersonCamera->bEnableFirstPersonFieldOfView = true;
+	FirstPersonCamera->bEnableFirstPersonScale = true;
+	FirstPersonCamera->FirstPersonFieldOfView = 70.f;
+	FirstPersonCamera->FirstPersonScale = 0.6f;
+
 	// Third-person body: others see it, owner doesn't.
 	GetMesh()->SetOwnerNoSee(true);
+	GetMesh()->FirstPersonPrimitiveType = EFirstPersonPrimitiveType::WorldSpaceRepresentation;
+	// Server must update bones even when it can't see the mesh, or the head hitbox won't follow the animation.
+	GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+
+	// Rifle meshes: FP one for the owner, TP one for everyone else.
+	WeaponMeshFP = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponMeshFP"));
+	WeaponMeshFP->SetupAttachment(FirstPersonMesh, FName(TEXT("HandGrip_R")));
+	WeaponMeshFP->SetOnlyOwnerSee(true);
+	WeaponMeshFP->FirstPersonPrimitiveType = EFirstPersonPrimitiveType::FirstPerson;
+	WeaponMeshFP->CastShadow = false;
+	WeaponMeshFP->SetCollisionProfileName(TEXT("NoCollision"));
+
+	WeaponMeshTP = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponMeshTP"));
+	WeaponMeshTP->SetupAttachment(GetMesh(), FName(TEXT("HandGrip_R")));
+	WeaponMeshTP->SetOwnerNoSee(true);
+	WeaponMeshTP->FirstPersonPrimitiveType = EFirstPersonPrimitiveType::WorldSpaceRepresentation;
+	WeaponMeshTP->SetCollisionProfileName(TEXT("NoCollision"));
+
+	WeaponComponent = CreateDefaultSubobject<UFPSWeaponComponent>(TEXT("WeaponComponent"));
+
+	// Hitboxes: only the Weapon trace channel hits these. Week 3 rewinds them.
+	HeadHitbox = CreateDefaultSubobject<USphereComponent>(TEXT("HeadHitbox"));
+	HeadHitbox->SetupAttachment(GetMesh(), FName(TEXT("head")));
+	HeadHitbox->InitSphereRadius(14.f);
+	HeadHitbox->ComponentTags.Add(FPS_HEAD_HITBOX_TAG);
+	ConfigureHitbox(HeadHitbox);
+
+	BodyHitbox = CreateDefaultSubobject<UCapsuleComponent>(TEXT("BodyHitbox"));
+	BodyHitbox->SetupAttachment(GetCapsuleComponent());
+	BodyHitbox->InitCapsuleSize(28.f, 70.f);
+	BodyHitbox->SetRelativeLocation(FVector(0.f, 0.f, -22.f));
+	ConfigureHitbox(BodyHitbox);
+
+	// Movement capsule and body mesh must NOT stop bullets, only hitboxes do.
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Weapon, ECR_Ignore);
+	GetMesh()->SetCollisionResponseToChannel(ECC_Weapon, ECR_Ignore);
 
 	bUseControllerRotationYaw = true;
+}
+
+void AFPSHeroCharacter::ConfigureHitbox(UShapeComponent* Hitbox)
+{
+	Hitbox->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	Hitbox->SetCollisionObjectType(ECC_WorldDynamic);
+	Hitbox->SetCollisionResponseToAllChannels(ECR_Ignore);
+	Hitbox->SetCollisionResponseToChannel(ECC_Weapon, ECR_Block);
+	Hitbox->SetGenerateOverlapEvents(false);
+	Hitbox->CanCharacterStepUpOn = ECB_No;
+	Hitbox->SetHiddenInGame(true);
+}
+
+void AFPSHeroCharacter::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+	WeaponComponent->SetupMeshes(FirstPersonMesh, WeaponMeshFP, WeaponMeshTP);
+}
+
+void AFPSHeroCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Hide head (and its children) on the FP mesh only. Camera socket still works.
+	for (const FName& Bone : FirstPersonHiddenBones)
+	{
+		if (FirstPersonMesh->GetBoneIndex(Bone) != INDEX_NONE)
+		{
+			FirstPersonMesh->HideBoneByName(Bone, EPhysBodyOp::PBO_None);
+		}
+	}
 }
 
 // ---------------------------------------------------------------- GAS
@@ -116,15 +192,29 @@ void AFPSHeroCharacter::PawnClientRestart()
 {
 	Super::PawnClientRestart();
 
-	const APlayerController* PC = Cast<APlayerController>(GetController());
-	if (!PC || !DefaultMappingContext)
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC)
 	{
 		return;
 	}
 
+	// Menus leave UI input mode / cursor on. In game: capture mouse, hide cursor.
+	PC->SetInputMode(FInputModeGameOnly());
+	PC->SetShowMouseCursor(false);
+
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
 	{
-		Subsystem->AddMappingContext(DefaultMappingContext, 0);
+		if (DefaultMappingContext)
+		{
+			Subsystem->AddMappingContext(DefaultMappingContext, 0);
+		}
+		for (UInputMappingContext* Context : AdditionalMappingContexts)
+		{
+			if (Context)
+			{
+				Subsystem->AddMappingContext(Context, 0);
+			}
+		}
 	}
 }
 
@@ -141,6 +231,7 @@ void AFPSHeroCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 
 	if (MoveAction) EIC->BindAction(MoveAction, ETriggerEvent::Triggered, this, &ThisClass::Move);
 	if (LookAction) EIC->BindAction(LookAction, ETriggerEvent::Triggered, this, &ThisClass::Look);
+	if (MouseLookAction) EIC->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &ThisClass::Look);
 	if (JumpAction)
 	{
 		EIC->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
@@ -259,7 +350,10 @@ void AFPSHeroCharacter::ApplyDeathState()
 	// Ragdoll if the body mesh has a physics asset, otherwise it just freezes.
 	GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));
 	GetMesh()->SetSimulatePhysics(true);
-	FirstPersonMesh->SetVisibility(false);
+	FirstPersonMesh->SetVisibility(false, true);
+	HeadHitbox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	BodyHitbox->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WeaponComponent->StopFiring();
 
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
@@ -330,17 +424,7 @@ void AFPSHeroCharacter::ApplyDamageTo(AFPSHeroCharacter* Target, float Amount)
 		return;
 	}
 
-	FGameplayEffectContextHandle Context = SourceASC->MakeEffectContext();
-	Context.AddSourceObject(this);
-
-	FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(UFPSDamageEffect::StaticClass(), 1.f, Context);
-	if (!Spec.IsValid())
-	{
-		return;
-	}
-
-	Spec.Data->SetSetByCallerMagnitude(UFPSDamageEffect::DamageSetByCallerName, Amount);
-	SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data.Get(), TargetASC);
+	UFPSDamageEffect::ApplyDamage(SourceASC, TargetASC, Amount, this);
 }
 
 void AFPSHeroCharacter::Tick(float DeltaSeconds)
