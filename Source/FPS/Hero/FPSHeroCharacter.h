@@ -14,6 +14,7 @@ class UInputAction;
 class UInputMappingContext;
 class UCameraComponent;
 class UFPSWeaponComponent;
+class UFPSLagCompensationComponent;
 class USphereComponent;
 class UCapsuleComponent;
 class UShapeComponent;
@@ -65,6 +66,18 @@ public:
 	UFUNCTION(Exec)
 	void DebugDamageSelf(float Amount);
 
+	/** Netcode test: auto-aim at the nearest other hero and fire non-stop. Usage: DebugAutoTest 1 / 0 */
+	UFUNCTION(Exec)
+	void DebugAutoTest(int32 bEnable);
+
+	/** Netcode test: strafe left/right on your own. Usage: DebugStrafe 1 / 0 */
+	UFUNCTION(Exec)
+	void DebugStrafe(int32 bEnable);
+
+	/** Zero the hit stats shown on screen. */
+	UFUNCTION(Exec)
+	void DebugResetStats();
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Components")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
@@ -81,6 +94,10 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<UFPSWeaponComponent> WeaponComponent;
+
+	/** Records hitbox history (server) and syncs the clock (owning client). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UFPSLagCompensationComponent> LagCompensationComponent;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hitboxes")
 	TObjectPtr<USphereComponent> HeadHitbox;
@@ -153,5 +170,12 @@ private:
 
 	void ApplyDamageTo(AFPSHeroCharacter* Target, float Amount);
 
+	void DrawDebugReadout();
+	void TickDebugStrafe(float DeltaSeconds);
+
 	FTimerHandle RespawnTimer;
+
+	bool bDebugStrafe = false;
+	float StrafeDirection = 1.f;
+	float StrafeTimer = 0.f;
 };

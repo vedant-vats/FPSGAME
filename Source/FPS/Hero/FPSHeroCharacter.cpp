@@ -7,6 +7,10 @@
 #include "FPSGameplayTags.h"
 #include "FPSWeaponComponent.h"
 #include "FPSCollision.h"
+#include "FPSLagCompensationComponent.h"
+#include "FPSNetDebug.h"
+#include "Engine/NetConnection.h"
+#include "GameFramework/PlayerState.h"
 #include "Components/SphereComponent.h"
 
 #include "AbilitySystemComponent.h"
@@ -70,6 +74,7 @@ AFPSHeroCharacter::AFPSHeroCharacter()
 	WeaponMeshTP->SetCollisionProfileName(TEXT("NoCollision"));
 
 	WeaponComponent = CreateDefaultSubobject<UFPSWeaponComponent>(TEXT("WeaponComponent"));
+	LagCompensationComponent = CreateDefaultSubobject<UFPSLagCompensationComponent>(TEXT("LagCompensation"));
 
 	// Hitboxes: only the Weapon trace channel hits these. Week 3 rewinds them.
 	HeadHitbox = CreateDefaultSubobject<USphereComponent>(TEXT("HeadHitbox"));
@@ -431,13 +436,24 @@ void AFPSHeroCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	if (!bShowDebugReadout || !IsLocallyControlled() || !GEngine)
+	if (!IsLocallyControlled())
 	{
 		return;
 	}
 
-	// Every hero's HP/shield as this client sees it (proves replication).
+	TickDebugStrafe(DeltaSeconds);
+
+	if (bShowDebugReadout && GEngine)
+	{
+		DrawDebugReadout();
+	}
+}
+
+void AFPSHeroCharacter::DrawDebugReadout()
+{
 	int32 Line = 0;
+
+	// Every hero's HP/shield as this client sees it (proves replication).
 	for (TActorIterator<AFPSHeroCharacter> It(GetWorld()); It; ++It)
 	{
 		const UFPSAttributeSet* AS = It->GetAttributeSet();
@@ -454,4 +470,92 @@ void AFPSHeroCharacter::Tick(float DeltaSeconds)
 
 		GEngine->AddOnScreenDebugMessage(1000 + Line++, 0.f, It->IsDead() ? FColor::Red : FColor::Green, Msg);
 	}
+
+	// Network: our measured round trip, engine ping, packet loss.
+	const float RttMs = LagCompensationComponent->GetRoundTripTime() * 1000.f;
+	const float PingMs = GetPlayerState() ? GetPlayerState()->GetPingInMilliseconds() : 0.f;
+	float LossIn = 0.f;
+	float LossOut = 0.f;
+	if (const APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		if (const UNetConnection* Conn = PC->GetNetConnection())
+		{
+			LossIn = Conn->GetInLossPercentage().GetAvgLossPercentage() * 100.f;
+			LossOut = Conn->GetOutLossPercentage().GetAvgLossPercentage() * 100.f;
+		}
+	}
+	GEngine->AddOnScreenDebugMessage(1000 + Line++, 0.f, FColor::Cyan,
+		FString::Printf(TEXT("NET  RTT %.0f ms | Ping %.0f ms | Loss in %.0f%% out %.0f%%"), RttMs, PingMs, LossIn, LossOut));
+
+	// Hit stats: did the server agree with what we saw?
+	const FFPSShotStats& Stats = WeaponComponent->GetStats();
+	GEngine->AddOnScreenDebugMessage(1000 + Line++, 0.f, FColor::Cyan,
+		FString::Printf(TEXT("SHOTS %d | Client hits %d | Server agreed %d (%.1f%%) | Phantom %d | Rewind %s %.0f ms%s"),
+			Stats.ShotsFired, Stats.ClientHits, Stats.ServerAgreed, Stats.GetAgreementPercent(), Stats.PhantomHits,
+			WeaponComponent->WasLastShotRewound() ? TEXT("ON") : TEXT("OFF"), WeaponComponent->GetLastRewindMs(),
+			WeaponComponent->IsAutoTesting() ? TEXT(" | AUTO TEST") : TEXT("")));
+}
+
+void AFPSHeroCharacter::TickDebugStrafe(float DeltaSeconds)
+{
+	if (!bDebugStrafe || bIsDead)
+	{
+		return;
+	}
+
+	StrafeTimer += DeltaSeconds;
+	if (StrafeTimer >= 1.f)
+	{
+		StrafeTimer = 0.f;
+		StrafeDirection *= -1.f;
+	}
+	AddMovementInput(GetActorRightVector(), StrafeDirection);
+}
+
+void AFPSHeroCharacter::DebugAutoTest(int32 bEnable)
+{
+	if (!bEnable)
+	{
+		WeaponComponent->SetAutoTestTarget(nullptr);
+		WeaponComponent->StopFiring();
+		return;
+	}
+
+	// Nearest other living hero.
+	AFPSHeroCharacter* Best = nullptr;
+	float BestDistSq = TNumericLimits<float>::Max();
+	for (TActorIterator<AFPSHeroCharacter> It(GetWorld()); It; ++It)
+	{
+		if (*It == this || It->IsDead())
+		{
+			continue;
+		}
+		const float DistSq = FVector::DistSquared(It->GetActorLocation(), GetActorLocation());
+		if (DistSq < BestDistSq)
+		{
+			BestDistSq = DistSq;
+			Best = *It;
+		}
+	}
+
+	if (!Best)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Hero] DebugAutoTest: no other hero found"));
+		return;
+	}
+
+	WeaponComponent->ResetStats();
+	WeaponComponent->SetAutoTestTarget(Best);
+	WeaponComponent->StartFiring();
+}
+
+void AFPSHeroCharacter::DebugStrafe(int32 bEnable)
+{
+	bDebugStrafe = bEnable != 0;
+	StrafeTimer = 0.f;
+}
+
+void AFPSHeroCharacter::DebugResetStats()
+{
+	WeaponComponent->ResetStats();
 }
