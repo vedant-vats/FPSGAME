@@ -11,6 +11,8 @@
 #include "FPSNetDebug.h"
 #include "Engine/NetConnection.h"
 #include "GameFramework/PlayerState.h"
+#include "Kismet/GameplayStatics.h"
+#include "NiagaraFunctionLibrary.h"
 #include "Components/SphereComponent.h"
 
 #include "AbilitySystemComponent.h"
@@ -117,6 +119,8 @@ void AFPSHeroCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
+	BaseFov = FirstPersonCamera->FieldOfView;
+
 	// Hide head (and its children) on the FP mesh only. Camera socket still works.
 	for (const FName& Bone : FirstPersonHiddenBones)
 	{
@@ -197,6 +201,10 @@ void AFPSHeroCharacter::PawnClientRestart()
 {
 	Super::PawnClientRestart();
 
+	// This is OUR pawn: turn on the ticks only the owner needs.
+	WeaponComponent->SetComponentTickEnabled(true);
+	LagCompensationComponent->SetComponentTickEnabled(true);
+
 	APlayerController* PC = Cast<APlayerController>(GetController());
 	if (!PC)
 	{
@@ -258,6 +266,10 @@ void AFPSHeroCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 
 void AFPSHeroCharacter::Move(const FInputActionValue& Value)
 {
+	if (IsStunned())
+	{
+		return;
+	}
 	const FVector2D Axis = Value.Get<FVector2D>();
 	AddMovementInput(GetActorForwardVector(), Axis.Y);
 	AddMovementInput(GetActorRightVector(), Axis.X);
@@ -443,10 +455,19 @@ void AFPSHeroCharacter::Tick(float DeltaSeconds)
 
 	TickDebugStrafe(DeltaSeconds);
 
+	// FOV punch eases back to normal.
+	if (FovKickCurrent > 0.01f)
+	{
+		FovKickCurrent = FMath::FInterpTo(FovKickCurrent, 0.f, DeltaSeconds, 8.f);
+		FirstPersonCamera->SetFieldOfView(BaseFov + FovKickCurrent);
+	}
+
+#if !UE_BUILD_SHIPPING
 	if (bShowDebugReadout && GEngine)
 	{
 		DrawDebugReadout();
 	}
+#endif
 }
 
 void AFPSHeroCharacter::DrawDebugReadout()
@@ -558,4 +579,54 @@ void AFPSHeroCharacter::DebugStrafe(int32 bEnable)
 void AFPSHeroCharacter::DebugResetStats()
 {
 	WeaponComponent->ResetStats();
+}
+
+// ---------------------------------------------------------------- Stun + ability feel
+
+bool AFPSHeroCharacter::IsStunned() const
+{
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponent();
+	return ASC && ASC->HasMatchingGameplayTag(FPSTags::State_Stunned);
+}
+
+bool AFPSHeroCharacter::CanJumpInternal_Implementation() const
+{
+	return Super::CanJumpInternal_Implementation() && !IsStunned();
+}
+
+void AFPSHeroCharacter::AddFovKick(float Degrees)
+{
+	FovKickCurrent = FMath::Max(FovKickCurrent, Degrees);
+	FirstPersonCamera->SetFieldOfView(BaseFov + FovKickCurrent);
+}
+
+void AFPSHeroCharacter::PlayAbilityFX(USoundBase* Sound, UNiagaraSystem* VFX, bool bAttach)
+{
+	const FVector Feet = GetActorLocation() - FVector(0.f, 0.f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+
+	if (Sound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, Sound, GetActorLocation());
+	}
+	if (VFX)
+	{
+		if (bAttach)
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAttached(VFX, GetRootComponent(), NAME_None,
+				FVector::ZeroVector, FRotator::ZeroRotator, EAttachLocation::KeepRelativeOffset, true);
+		}
+		else
+		{
+			UNiagaraFunctionLibrary::SpawnSystemAtLocation(this, VFX, Feet);
+		}
+	}
+}
+
+void AFPSHeroCharacter::MulticastAbilityFX_Implementation(USoundBase* Sound, UNiagaraSystem* VFX, bool bAttach)
+{
+	if (IsLocallyControlled())
+	{
+		return; // owner already played it the moment they pressed the key
+	}
+	PlayAbilityFX(Sound, VFX, bAttach);
 }

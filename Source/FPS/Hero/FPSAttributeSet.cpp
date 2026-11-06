@@ -69,7 +69,7 @@ void UFPSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbac
 		SetHealth(FMath::Clamp(GetHealth() - Remaining, 0.f, GetMaxHealth()));
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("[Damage] %s took %.1f (shield -%.1f, health -%.1f) -> HP %.1f SH %.1f"),
+	UE_LOG(LogTemp, Verbose, TEXT("[Damage] %s took %.1f (shield -%.1f, health -%.1f) -> HP %.1f SH %.1f"),
 		Hero ? *Hero->GetName() : TEXT("?"), Damage, Absorbed, Remaining, GetHealth(), GetShield());
 
 	if (GetHealth() <= 0.f && Hero)

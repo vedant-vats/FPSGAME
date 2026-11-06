@@ -15,6 +15,8 @@ class UInputMappingContext;
 class UCameraComponent;
 class UFPSWeaponComponent;
 class UFPSLagCompensationComponent;
+class USoundBase;
+class UNiagaraSystem;
 class USphereComponent;
 class UCapsuleComponent;
 class UShapeComponent;
@@ -56,6 +58,22 @@ public:
 
 	/** Server only. Called by the attribute set when health hits 0. */
 	void HandleDeath();
+
+	UFUNCTION(BlueprintPure, Category = "Hero")
+	bool IsStunned() const;
+
+	// ---- Ability feel ----
+	/** Local: widen FOV by Degrees, eases back (dash punch). */
+	void AddFovKick(float Degrees);
+
+	/** Local: play sound + VFX on this hero. bAttach = follow the hero (trail), else at feet (ring). */
+	void PlayAbilityFX(USoundBase* Sound, UNiagaraSystem* VFX, bool bAttach);
+
+	/** Server -> everyone except the owner (owner already played it). */
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastAbilityFX(USoundBase* Sound, UNiagaraSystem* VFX, bool bAttach);
+
+	virtual bool CanJumpInternal_Implementation() const override;
 
 	// ---- Debug console commands (type in ~ console) ----
 	/** Damage every other hero. Usage: DebugDamageOthers 30 */
@@ -174,6 +192,9 @@ private:
 	void TickDebugStrafe(float DeltaSeconds);
 
 	FTimerHandle RespawnTimer;
+
+	float BaseFov = 90.f;
+	float FovKickCurrent = 0.f;
 
 	bool bDebugStrafe = false;
 	float StrafeDirection = 1.f;

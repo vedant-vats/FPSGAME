@@ -23,6 +23,13 @@ void UFPSLagCompensationComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	CollectHitboxes();
+
+	// Clients don't record history. Only the owning client needs to tick (clock sync),
+	// and the hero turns that on in PawnClientRestart. Saves a tick per pawn per client.
+	if (!GetOwner()->HasAuthority())
+	{
+		SetComponentTickEnabled(false);
+	}
 }
 
 void UFPSLagCompensationComponent::CollectHitboxes()

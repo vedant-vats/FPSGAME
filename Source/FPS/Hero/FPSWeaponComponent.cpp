@@ -21,6 +21,7 @@
 UFPSWeaponComponent::UFPSWeaponComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bStartWithTickEnabled = false; // only the owner needs bloom decay; hero enables it
 	SetIsReplicatedByDefault(true); // needed for RPCs on a component
 }
 
@@ -71,7 +72,7 @@ bool UFPSWeaponComponent::CanFire() const
 		return false;
 	}
 	const UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn);
-	return !(ASC && ASC->HasMatchingGameplayTag(FPSTags::State_Dead));
+	return !(ASC && (ASC->HasMatchingGameplayTag(FPSTags::State_Dead) || ASC->HasMatchingGameplayTag(FPSTags::State_Stunned)));
 }
 
 float UFPSWeaponComponent::GetCurrentSpread() const
@@ -310,7 +311,7 @@ void UFPSWeaponComponent::ServerFire_Implementation(FVector_NetQuantize Start, F
 		}
 		bKill = TargetASC->HasMatchingGameplayTag(FPSTags::State_Dead);
 
-		UE_LOG(LogTemp, Log, TEXT("[Weapon] %s hit %s (%s) for %.0f%s | rewind %s %.0f ms"),
+		UE_LOG(LogTemp, Verbose, TEXT("[Weapon] %s hit %s (%s) for %.0f%s | rewind %s %.0f ms"),
 			*Pawn->GetName(), *GetNameSafe(HitActor), *GetNameSafe(Hit.GetComponent()), Damage,
 			bKill ? TEXT(" KILL") : TEXT(""), bRewound ? TEXT("ON") : TEXT("OFF"), RewindMs);
 	}
