@@ -42,7 +42,8 @@ public:
 	virtual void OnCombatantDied() override;
 
 	// ---- Pool (server) ----
-	void Activate(const FVector& Location, const FRotator& Rotation);
+	/** FloorLocation = point on the navmesh. Tier: 0 normal, 1 elite, 2 mini-boss. */
+	void Activate(const FVector& FloorLocation, const FRotator& Rotation, uint8 Tier = 0);
 	void Deactivate();
 	bool IsActive() const { return bActive; }
 
@@ -55,7 +56,16 @@ public:
 	void StartAttack(AActor* Target);
 	float GetAttackRange() const { return AttackRange; }
 
+	// ---- HUD ----
+	const FText& GetDisplayName() const { return DisplayName; }
+	uint8 GetTier() const { return Tier; }
+	const UFPSAttributeSet* GetAttributeSet() const { return AttributeSet; }
+
 protected:
+	/** Shown above the health bar ("Runner", "Tank"). */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Stats")
+	FText DisplayName = NSLOCTEXT("FPS", "EnemyName", "Enemy");
+
 	// ---- Stats (set per enemy type in its Blueprint) ----
 	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Stats")
 	float MaxHealth = 60.f;
@@ -81,6 +91,32 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Feel")
 	TObjectPtr<USoundBase> DeathSound;
+
+	// ---- Elite / mini-boss (Marvel Zombies style variants) ----
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Elite")
+	float EliteScale = 1.25f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Elite")
+	float EliteHealthMultiplier = 3.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Elite")
+	float EliteDamageMultiplier = 1.5f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Elite")
+	float BossScale = 2.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Elite")
+	float BossHealthMultiplier = 12.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Elite")
+	float BossDamageMultiplier = 2.f;
+
+	/** 0 normal, 1 elite, 2 mini-boss. Replicated so clients scale the body too. */
+	UPROPERTY(ReplicatedUsing = OnRep_Tier)
+	uint8 Tier = 0;
+
+	UFUNCTION()
+	void OnRep_Tier();
 
 	/** Seconds the body stays after death before it returns to the pool. */
 	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Stats", meta = (Units = "s"))
@@ -116,6 +152,9 @@ private:
 	void ResetVisuals();
 	void FinishAttack();
 	void OnStunTagChanged(const FGameplayTag Tag, int32 NewCount);
+	void ApplyTierScale();
+	float GetTierHealthMultiplier() const;
+	float GetTierDamageMultiplier() const;
 
 	UFUNCTION(NetMulticast, Unreliable)
 	void MulticastPlayAttack();

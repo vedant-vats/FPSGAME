@@ -1,6 +1,5 @@
 #include "FPSEnemySpawner.h"
 
-#include "Components/CapsuleComponent.h"
 #include "Engine/World.h"
 #include "NavigationSystem.h"
 
@@ -80,7 +79,7 @@ bool AFPSEnemySpawner::FindSpawnLocation(FVector& OutLocation) const
 	return true;
 }
 
-AFPSEnemyCharacter* AFPSEnemySpawner::SpawnEnemy(TSubclassOf<AFPSEnemyCharacter> EnemyClass)
+AFPSEnemyCharacter* AFPSEnemySpawner::SpawnEnemy(TSubclassOf<AFPSEnemyCharacter> EnemyClass, uint8 Tier)
 {
 	if (!HasAuthority() || !EnemyClass)
 	{
@@ -113,10 +112,9 @@ AFPSEnemyCharacter* AFPSEnemySpawner::SpawnEnemy(TSubclassOf<AFPSEnemyCharacter>
 		return nullptr;
 	}
 
-	// Navmesh point is on the floor; the actor's origin is the capsule center.
-	Location.Z += Enemy->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	// Location is the floor point; Activate stands the capsule on it (after scaling for elites).
 	const FRotator Facing(0.f, FMath::FRandRange(-180.f, 180.f), 0.f);
-	Enemy->Activate(Location, Facing);
+	Enemy->Activate(Location, Facing, Tier);
 	return Enemy;
 }
 

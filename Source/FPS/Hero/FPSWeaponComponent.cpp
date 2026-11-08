@@ -298,7 +298,7 @@ void UFPSWeaponComponent::ServerFire_Implementation(FVector_NetQuantize Start, F
 	UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(HitActor);
 	UAbilitySystemComponent* SourceASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Pawn);
 	const APawn* TargetPawn = Cast<APawn>(HitActor);
-	const bool bFriendlyBlocked = !bAllowFriendlyFire && TargetPawn && TargetPawn->IsPlayerControlled();
+	const bool bFriendlyBlocked = !(bAllowFriendlyFire || FPSNet::IsFriendlyFireEnabled()) && TargetPawn && TargetPawn->IsPlayerControlled();
 
 	if (TargetASC && SourceASC && !bFriendlyBlocked && !TargetASC->HasMatchingGameplayTag(FPSTags::State_Dead))
 	{

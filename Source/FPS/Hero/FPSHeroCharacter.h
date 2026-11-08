@@ -67,6 +67,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hero")
 	bool IsStunned() const;
 
+	/** Server time this hero respawns (owner only, for the HUD countdown). */
+	float GetRespawnServerTime() const { return RespawnServerTime; }
+
 	// ---- Ability feel ----
 	/** Local: widen FOV by Degrees, eases back (dash punch). */
 	void AddFovKick(float Degrees);
@@ -108,6 +111,10 @@ public:
 	/** Kill every active enemy. */
 	UFUNCTION(Exec)
 	void DebugKillEnemies();
+
+	/** End the current wave (or skip the countdown). */
+	UFUNCTION(Exec)
+	void DebugSkipWave();
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Components")
@@ -169,8 +176,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "GAS")
 	float DefaultMaxShield = 50.f;
 
+	/** Respawn after this long, as long as the match isn't over (everyone dead = defeat). */
 	UPROPERTY(EditDefaultsOnly, Category = "Hero")
-	float RespawnDelay = 3.f;
+	float RespawnDelay = 10.f;
+
+	UPROPERTY(Replicated)
+	float RespawnServerTime = 0.f;
 
 	UPROPERTY(EditAnywhere, Category = "Debug")
 	bool bShowDebugReadout = true;
@@ -201,6 +212,9 @@ private:
 
 	UFUNCTION(Server, Reliable)
 	void ServerDebugEnemies(int32 SpawnCount, bool bKillAll);
+
+	UFUNCTION(Server, Reliable)
+	void ServerDebugSkipWave();
 
 	void ApplyDamageTo(AFPSHeroCharacter* Target, float Amount);
 

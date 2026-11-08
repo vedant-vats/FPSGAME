@@ -9,6 +9,7 @@
  *   fps.NoDamage 0/1        (server)  hits still count, no damage (for long tests)
  *   fps.RewindOffsetMs N    (client)  extra ms to rewind (tuning)
  *   fps.MaxRewindMs N       (server)  max rewind allowed (anti-cheat cap)
+ *   fps.FriendlyFire 0/1    (server)  players can hurt players (needed for the rewind accuracy test)
  */
 namespace FPSNet
 {
@@ -17,4 +18,5 @@ namespace FPSNet
 	FPS_API bool IsNoDamage();
 	FPS_API float GetRewindOffsetSeconds();
 	FPS_API float GetMaxRewindSeconds();
+	FPS_API bool IsFriendlyFireEnabled();
 }

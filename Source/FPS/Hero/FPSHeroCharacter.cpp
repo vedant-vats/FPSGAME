@@ -11,6 +11,8 @@
 #include "FPSNetDebug.h"
 #include "FPSEnemyCharacter.h"
 #include "FPSEnemySpawner.h"
+#include "FPSGameState.h"
+#include "FPSWaveManager.h"
 #include "Engine/NetConnection.h"
 #include "GameFramework/PlayerState.h"
 #include "Kismet/GameplayStatics.h"
@@ -330,6 +332,7 @@ void AFPSHeroCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AFPSHeroCharacter, bIsDead);
+	DOREPLIFETIME_CONDITION(AFPSHeroCharacter, RespawnServerTime, COND_OwnerOnly);
 }
 
 void AFPSHeroCharacter::HandleDeath()
@@ -350,6 +353,11 @@ void AFPSHeroCharacter::HandleDeath()
 	UE_LOG(LogTemp, Log, TEXT("[Hero] %s died. Respawn in %.1fs"), *GetName(), RespawnDelay);
 
 	ApplyDeathState(); // OnRep doesn't fire on server.
+
+	if (const AGameStateBase* GS = GetWorld()->GetGameState())
+	{
+		RespawnServerTime = static_cast<float>(GS->GetServerWorldTimeSeconds()) + RespawnDelay;
+	}
 	GetWorldTimerManager().SetTimer(RespawnTimer, this, &ThisClass::Respawn, RespawnDelay, false);
 }
 
@@ -385,6 +393,15 @@ void AFPSHeroCharacter::ApplyDeathState()
 
 void AFPSHeroCharacter::Respawn()
 {
+	// Match over (defeat/victory): stay dead, the map reloads soon.
+	if (const AFPSGameState* GS = GetWorld()->GetGameState<AFPSGameState>())
+	{
+		if (GS->IsMatchOver())
+		{
+			return;
+		}
+	}
+
 	AController* OldController = GetController();
 	UWorld* World = GetWorld();
 
@@ -602,6 +619,21 @@ void AFPSHeroCharacter::DebugSpawnEnemies(int32 Count)
 void AFPSHeroCharacter::DebugKillEnemies()
 {
 	ServerDebugEnemies(0, true);
+}
+
+void AFPSHeroCharacter::DebugSkipWave()
+{
+	ServerDebugSkipWave();
+}
+
+void AFPSHeroCharacter::ServerDebugSkipWave_Implementation()
+{
+	for (TActorIterator<AFPSWaveManager> It(GetWorld()); It; ++It)
+	{
+		It->SkipWave();
+		return;
+	}
+	UE_LOG(LogTemp, Warning, TEXT("[Hero] No FPSWaveManager in the map"));
 }
 
 void AFPSHeroCharacter::ServerDebugEnemies_Implementation(int32 SpawnCount, bool bKillAll)

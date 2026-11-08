@@ -75,7 +75,7 @@ void UFPSGA_Shockwave::ApplyShockwave(AActor* Source) const
 		}
 		Done.Add(Target);
 
-		if (!bAffectPlayers && Target->IsPlayerControlled())
+		if (!(bAffectPlayers || FPSNet::IsFriendlyFireEnabled()) && Target->IsPlayerControlled())
 		{
 			continue;
 		}

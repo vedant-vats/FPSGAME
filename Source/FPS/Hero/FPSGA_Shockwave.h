@@ -48,9 +48,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Shockwave")
 	bool bKnockbackPlayers = false;
 
-	/** On for testing on the other player. Turn off when enemies arrive (W5). */
+	/** Co-op: off. Console "fps.FriendlyFire 1" turns it on for tests. */
 	UPROPERTY(EditDefaultsOnly, Category = "Shockwave")
-	bool bAffectPlayers = true;
+	bool bAffectPlayers = false;
 
 	// ---- Juice ----
 	UPROPERTY(EditDefaultsOnly, Category = "Shockwave|Feel")

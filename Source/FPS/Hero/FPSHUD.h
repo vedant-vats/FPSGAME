@@ -5,6 +5,7 @@
 #include "FPSHUD.generated.h"
 
 class AFPSHeroCharacter;
+class UUserWidget;
 class UFPSWeaponComponent;
 
 /**
@@ -20,9 +21,14 @@ class FPS_API AFPSHUD : public AHUD
 	GENERATED_BODY()
 
 public:
+	virtual void BeginPlay() override;
 	virtual void DrawHUD() override;
 
 protected:
+	/** Your UMG wave banner (binds to FPSGameState events). Empty = simple canvas text instead. */
+	UPROPERTY(EditDefaultsOnly, Category = "Waves")
+	TSubclassOf<UUserWidget> WaveWidgetClass;
+
 	// ---- Crosshair ----
 	UPROPERTY(EditDefaultsOnly, Category = "Crosshair")
 	FLinearColor CrosshairColor = FLinearColor(1.f, 1.f, 1.f, 0.9f);
@@ -60,6 +66,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Bars")
 	float GhostSpeed = 2.5f;
 
+	// ---- Enemy bars ----
+	/** Bars only for enemies closer than this. */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy Bars", meta = (Units = "cm"))
+	float EnemyBarMaxDistance = 4000.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy Bars")
+	float EnemyBarWidth = 70.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy Bars")
+	FLinearColor EnemyHealthColor = FLinearColor(0.9f, 0.2f, 0.2f, 0.95f);
+
 	// ---- Abilities ----
 	UPROPERTY(EditDefaultsOnly, Category = "Abilities")
 	FLinearColor AbilityReadyColor = FLinearColor(1.f, 0.8f, 0.2f, 0.95f);
@@ -71,7 +88,13 @@ private:
 	void DrawCrosshair(const UFPSWeaponComponent* Weapon);
 	void DrawBars(const AFPSHeroCharacter* Hero, float DeltaSeconds);
 	void DrawAbilities(const AFPSHeroCharacter* Hero);
+	void DrawMatchInfo(const AFPSHeroCharacter* Hero);
+	void DrawEnemyBars();
+	void DrawCenteredText(const FString& Text, float Y, const FLinearColor& Color, float Scale);
 	void DrawBar(float X, float Y, float W, float H, float Fill, float Ghost, const FLinearColor& Color);
+
+	UPROPERTY()
+	TObjectPtr<UUserWidget> WaveWidget;
 
 	// Smoothed display values (0-1).
 	float ShownHealth = 1.f;

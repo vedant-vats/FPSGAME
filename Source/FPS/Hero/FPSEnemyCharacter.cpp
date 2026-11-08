@@ -95,11 +95,12 @@ void AFPSEnemyCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AFPSEnemyCharacter, bIsDead);
+	DOREPLIFETIME(AFPSEnemyCharacter, Tier);
 }
 
 // ---------------------------------------------------------------- Pool
 
-void AFPSEnemyCharacter::Activate(const FVector& Location, const FRotator& Rotation)
+void AFPSEnemyCharacter::Activate(const FVector& FloorLocation, const FRotator& Rotation, uint8 InTier)
 {
 	// Wake up on the network first, so the changes below get sent.
 	SetNetDormancy(DORM_Awake);
@@ -108,12 +109,16 @@ void AFPSEnemyCharacter::Activate(const FVector& Location, const FRotator& Rotat
 	bActive = true;
 	bIsDead = false;
 
+	// Size first, then stand the (possibly bigger) capsule on the floor point.
+	Tier = InTier;
+	ApplyTierScale();
+	const FVector Location = FloorLocation + FVector(0.f, 0.f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
 	SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
 
 	// Fresh stats: full health, no shield, no leftover tags or stun.
 	AbilitySystemComponent->RemoveLooseGameplayTag(FPSTags::State_Dead, 99);
 	AbilitySystemComponent->RemoveActiveEffectsWithGrantedTags(FGameplayTagContainer(FPSTags::State_Stunned));
-	AttributeSet->ResetAttributes(MaxHealth, 0.f);
+	AttributeSet->ResetAttributes(MaxHealth * GetTierHealthMultiplier(), 0.f);
 
 	ResetVisuals();
 	SetActorHiddenInGame(false);
@@ -279,7 +284,7 @@ void AFPSEnemyCharacter::FinishAttack()
 	UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
 	if (TargetASC && !TargetASC->HasMatchingGameplayTag(FPSTags::State_Dead))
 	{
-		UFPSDamageEffect::ApplyDamage(AbilitySystemComponent, TargetASC, AttackDamage, this);
+		UFPSDamageEffect::ApplyDamage(AbilitySystemComponent, TargetASC, AttackDamage * GetTierDamageMultiplier(), this);
 	}
 }
 
@@ -306,4 +311,27 @@ void AFPSEnemyCharacter::OnStunTagChanged(const FGameplayTag Tag, int32 NewCount
 		}
 	}
 	// Stun ended: the AI picks up on its next think.
+}
+
+// ---------------------------------------------------------------- Tiers
+
+void AFPSEnemyCharacter::OnRep_Tier()
+{
+	ApplyTierScale();
+}
+
+void AFPSEnemyCharacter::ApplyTierScale()
+{
+	const float Scale = Tier == 2 ? BossScale : (Tier == 1 ? EliteScale : 1.f);
+	SetActorScale3D(FVector(Scale)); // capsule, mesh and hitboxes all scale with it
+}
+
+float AFPSEnemyCharacter::GetTierHealthMultiplier() const
+{
+	return Tier == 2 ? BossHealthMultiplier : (Tier == 1 ? EliteHealthMultiplier : 1.f);
+}
+
+float AFPSEnemyCharacter::GetTierDamageMultiplier() const
+{
+	return Tier == 2 ? BossDamageMultiplier : (Tier == 1 ? EliteDamageMultiplier : 1.f);
 }

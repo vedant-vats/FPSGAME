@@ -34,7 +34,7 @@ public:
 	virtual void BeginPlay() override;
 
 	/** Server. Take one from the pool, place it on the navmesh, wake it up. */
-	AFPSEnemyCharacter* SpawnEnemy(TSubclassOf<AFPSEnemyCharacter> EnemyClass);
+	AFPSEnemyCharacter* SpawnEnemy(TSubclassOf<AFPSEnemyCharacter> EnemyClass, uint8 Tier = 0);
 
 	/** Server. Spawns Count enemies, cycling through the pool types. */
 	void SpawnMixed(int32 Count);

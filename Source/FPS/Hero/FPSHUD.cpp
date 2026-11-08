@@ -2,6 +2,11 @@
 #include "FPSAttributeSet.h"
 #include "FPSGameplayAbility.h"
 #include "FPSGameplayTags.h"
+#include "FPSGameState.h"
+#include "FPSEnemyCharacter.h"
+#include "Components/CapsuleComponent.h"
+#include "EngineUtils.h"
+#include "Blueprint/UserWidget.h"
 #include "FPSHeroCharacter.h"
 #include "FPSWeaponComponent.h"
 
@@ -11,6 +16,20 @@
 #include "Engine/Engine.h"
 #include "Engine/Font.h"
 #include "GameFramework/PlayerController.h"
+
+void AFPSHUD::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (WaveWidgetClass && PlayerOwner && PlayerOwner->IsLocalController())
+	{
+		WaveWidget = CreateWidget<UUserWidget>(PlayerOwner, WaveWidgetClass);
+		if (WaveWidget)
+		{
+			WaveWidget->AddToViewport(10);
+		}
+	}
+}
 
 void AFPSHUD::DrawHUD()
 {
@@ -26,7 +45,9 @@ void AFPSHUD::DrawHUD()
 	const float DeltaSeconds = FMath::Clamp(Now - LastDrawTime, 0.f, 0.1f);
 	LastDrawTime = Now;
 
+	DrawEnemyBars();
 	DrawBars(Hero, DeltaSeconds);
+	DrawMatchInfo(Hero);
 
 	if (Hero->IsDead())
 	{
@@ -211,5 +232,148 @@ void AFPSHUD::DrawAbilities(const AFPSHeroCharacter* Hero)
 		DrawText(Ability->HUDName.ToString(), FLinearColor(1.f, 1.f, 1.f, 0.8f), X, Y - 22.f * Scale, Font, Scale * 0.9f);
 
 		X -= Size + Spacing;
+	}
+}
+
+// ---------------------------------------------------------------- Waves / match
+
+void AFPSHUD::DrawCenteredText(const FString& Text, float Y, const FLinearColor& Color, float Scale)
+{
+	UFont* Font = GEngine->GetLargeFont();
+	float W = 0.f;
+	float H = 0.f;
+	GetTextSize(Text, W, H, Font, Scale);
+	DrawText(Text, Color, (Canvas->ClipX - W) * 0.5f, Y, Font, Scale);
+}
+
+void AFPSHUD::DrawMatchInfo(const AFPSHeroCharacter* Hero)
+{
+	const AFPSGameState* GS = GetWorld()->GetGameState<AFPSGameState>();
+	if (!GS)
+	{
+		return;
+	}
+
+	const float Scale = Canvas->ClipY / 1080.f;
+	const float TopY = 30.f * Scale;
+	const int32 Seconds = FMath::CeilToInt(GS->GetPhaseTimeRemaining());
+
+	// Fallback only: the UMG wave widget takes over when it's set.
+	if (!WaveWidget)
+	{
+	switch (GS->Phase)
+	{
+	case EFPSMatchPhase::WaitingToStart:
+		DrawCenteredText(FString::Printf(TEXT("FIRST WAVE IN %d"), Seconds), TopY, FLinearColor::White, Scale);
+		break;
+	case EFPSMatchPhase::InWave:
+		DrawCenteredText(FString::Printf(TEXT("WAVE %d / %d"), GS->CurrentWave, GS->TotalWaves), TopY, FLinearColor::White, Scale);
+		DrawCenteredText(FString::Printf(TEXT("%d ENEMIES LEFT"), GS->EnemiesRemaining), TopY + 34.f * Scale, FLinearColor(1.f, 0.6f, 0.2f), Scale * 0.8f);
+		break;
+	case EFPSMatchPhase::Intermission:
+		DrawCenteredText(FString::Printf(TEXT("WAVE %d CLEARED"), GS->CurrentWave), TopY, FLinearColor(0.3f, 1.f, 0.4f), Scale);
+		DrawCenteredText(FString::Printf(TEXT("NEXT WAVE IN %d"), Seconds), TopY + 34.f * Scale, FLinearColor::White, Scale * 0.8f);
+		break;
+	case EFPSMatchPhase::Victory:
+		DrawCenteredText(TEXT("VICTORY"), Canvas->ClipY * 0.35f, FLinearColor(0.3f, 1.f, 0.4f), Scale * 2.5f);
+		DrawCenteredText(FString::Printf(TEXT("Restarting in %d"), Seconds), Canvas->ClipY * 0.35f + 70.f * Scale, FLinearColor::White, Scale);
+		break;
+	case EFPSMatchPhase::Defeat:
+		DrawCenteredText(TEXT("DEFEAT"), Canvas->ClipY * 0.35f, FLinearColor(1.f, 0.25f, 0.2f), Scale * 2.5f);
+		DrawCenteredText(FString::Printf(TEXT("Restarting in %d"), Seconds), Canvas->ClipY * 0.35f + 70.f * Scale, FLinearColor::White, Scale);
+		break;
+	}
+	}
+
+	// Your own respawn countdown.
+	if (Hero->IsDead() && !GS->IsMatchOver())
+	{
+		const int32 RespawnIn = FMath::CeilToInt(FMath::Max(0.f, Hero->GetRespawnServerTime() - static_cast<float>(GS->GetServerWorldTimeSeconds())));
+		DrawCenteredText(FString::Printf(TEXT("RESPAWN IN %d"), RespawnIn), Canvas->ClipY * 0.45f, FLinearColor(1.f, 0.4f, 0.3f), Scale * 1.5f);
+	}
+}
+
+// ---------------------------------------------------------------- Enemy health bars
+
+void AFPSHUD::DrawEnemyBars()
+{
+	// One HUD pass for every enemy: no widget component per enemy (50 widgets = 50 ticks + draws).
+	const APlayerCameraManager* Camera = PlayerOwner->PlayerCameraManager;
+	if (!Camera)
+	{
+		return;
+	}
+
+	const FVector CameraLocation = Camera->GetCameraLocation();
+	const FVector CameraForward = Camera->GetCameraRotation().Vector();
+	const float MaxDistSq = EnemyBarMaxDistance * EnemyBarMaxDistance;
+	const float UIScale = Canvas->ClipY / 1080.f;
+	UFont* Font = GEngine->GetSmallFont();
+
+	for (TActorIterator<AFPSEnemyCharacter> It(GetWorld()); It; ++It)
+	{
+		const AFPSEnemyCharacter* Enemy = *It;
+		// Only elites and the mini-boss get a bar + name (normal enemies = clutter in a horde).
+		if (Enemy->IsHidden() || Enemy->IsCombatantDead() || Enemy->GetTier() == 0)
+		{
+			continue;
+		}
+
+		// Cheap rejects first: too far, or behind the camera.
+		const FVector ToEnemy = Enemy->GetActorLocation() - CameraLocation;
+		const float DistSq = ToEnemy.SizeSquared();
+		if (DistSq > MaxDistSq || FVector::DotProduct(ToEnemy, CameraForward) <= 0.f)
+		{
+			continue;
+		}
+
+		const UFPSAttributeSet* AS = Enemy->GetAttributeSet();
+		if (!AS || AS->GetMaxHealth() <= 0.f)
+		{
+			continue;
+		}
+
+		// Point just above the head (capsule already includes elite/boss scale).
+		const FVector Above = Enemy->GetActorLocation() + FVector(0.f, 0.f, Enemy->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 25.f);
+		const FVector Screen = Project(Above);
+		if (Screen.Z <= 0.f || Screen.X < 0.f || Screen.X > Canvas->ClipX || Screen.Y < 0.f || Screen.Y > Canvas->ClipY)
+		{
+			continue;
+		}
+
+		// Shrink a bit with distance so far bars don't clutter.
+		const float Dist = FMath::Sqrt(DistSq);
+		const float DistScale = FMath::GetMappedRangeValueClamped(FVector2D(500.f, EnemyBarMaxDistance), FVector2D(1.f, 0.6f), Dist);
+		const uint8 Tier = Enemy->GetTier();
+		const float TierScale = Tier == 2 ? 2.2f : (Tier == 1 ? 1.4f : 1.f);
+
+		const float W = EnemyBarWidth * TierScale * DistScale * UIScale;
+		const float H = FMath::Max(3.f, 6.f * DistScale * UIScale * (Tier == 2 ? 1.5f : 1.f));
+		const float X = Screen.X - W * 0.5f;
+		const float Y = Screen.Y;
+		const float Fill = FMath::Clamp(AS->GetHealth() / AS->GetMaxHealth(), 0.f, 1.f);
+
+		DrawRect(BackColor, X - 1.f, Y - 1.f, W + 2.f, H + 2.f);
+		DrawRect(EnemyHealthColor, X, Y, W * Fill, H);
+
+		// Name: white / orange elite / red mini-boss.
+		FString Name = Enemy->GetDisplayName().ToString();
+		FLinearColor NameColor = FLinearColor(1.f, 1.f, 1.f, 0.85f);
+		if (Tier == 1)
+		{
+			Name = TEXT("Elite ") + Name;
+			NameColor = FLinearColor(1.f, 0.6f, 0.15f);
+		}
+		else if (Tier == 2)
+		{
+			Name = TEXT("Mini-Boss ") + Name;
+			NameColor = FLinearColor(1.f, 0.25f, 0.2f);
+		}
+
+		const float TextScale = DistScale * UIScale * (Tier > 0 ? 1.1f : 0.9f);
+		float TW = 0.f;
+		float TH = 0.f;
+		GetTextSize(Name, TW, TH, Font, TextScale);
+		DrawText(Name, NameColor, Screen.X - TW * 0.5f, Y - TH - 2.f, Font, TextScale);
 	}
 }

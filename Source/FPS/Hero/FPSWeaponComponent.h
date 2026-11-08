@@ -73,9 +73,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Damage", meta = (Units = "cm"))
 	float Range = 10000.f;
 
-	/** On for testing (only players exist). Turn off when enemies arrive (W5). */
+	/** Co-op: off. Console "fps.FriendlyFire 1" turns it on for tests. */
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Damage")
-	bool bAllowFriendlyFire = true;
+	bool bAllowFriendlyFire = false;
 
 	// ---- Fire rate ----
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Fire", meta = (ClampMin = 1, Units = "Hz"))

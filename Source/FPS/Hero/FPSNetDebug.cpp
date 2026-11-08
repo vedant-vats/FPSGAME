@@ -21,6 +21,10 @@ static TAutoConsoleVariable<float> CVarFPSMaxRewindMs(
 	TEXT("fps.MaxRewindMs"), 400.f,
 	TEXT("Server: max rewind in ms. Shots claiming older times are clamped."));
 
+static TAutoConsoleVariable<int32> CVarFPSFriendlyFire(
+	TEXT("fps.FriendlyFire"), 0,
+	TEXT("Server: 1 = players can damage/stun each other (rewind accuracy test vs a player target)."));
+
 namespace FPSNet
 {
 	bool IsRewindEnabled() { return CVarFPSRewind.GetValueOnGameThread() != 0; }
@@ -28,4 +32,5 @@ namespace FPSNet
 	bool IsNoDamage() { return CVarFPSNoDamage.GetValueOnGameThread() != 0; }
 	float GetRewindOffsetSeconds() { return CVarFPSRewindOffsetMs.GetValueOnGameThread() / 1000.f; }
 	float GetMaxRewindSeconds() { return CVarFPSMaxRewindMs.GetValueOnGameThread() / 1000.f; }
+	bool IsFriendlyFireEnabled() { return CVarFPSFriendlyFire.GetValueOnGameThread() != 0; }
 }
