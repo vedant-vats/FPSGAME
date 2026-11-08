@@ -63,6 +63,9 @@ public:
 
 	const TArray<TObjectPtr<UShapeComponent>>& GetHitboxes() const { return Hitboxes; }
 
+	/** Server. Forget past positions (pooled enemy teleported to a new spawn). */
+	void ClearHistory() { History.Reset(); }
+
 	// ---- Owning client: clock ----
 	/** Our estimate of the server's current time. On the server: just its time. */
 	double GetServerTime() const;

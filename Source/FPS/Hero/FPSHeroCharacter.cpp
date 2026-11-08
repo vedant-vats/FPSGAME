@@ -9,6 +9,8 @@
 #include "FPSCollision.h"
 #include "FPSLagCompensationComponent.h"
 #include "FPSNetDebug.h"
+#include "FPSEnemyCharacter.h"
+#include "FPSEnemySpawner.h"
 #include "Engine/NetConnection.h"
 #include "GameFramework/PlayerState.h"
 #include "Kismet/GameplayStatics.h"
@@ -492,6 +494,17 @@ void AFPSHeroCharacter::DrawDebugReadout()
 		GEngine->AddOnScreenDebugMessage(1000 + Line++, 0.f, It->IsDead() ? FColor::Red : FColor::Green, Msg);
 	}
 
+	// Enemies alive, as this client sees them (hidden = in the pool).
+	int32 EnemiesAlive = 0;
+	for (TActorIterator<AFPSEnemyCharacter> It(GetWorld()); It; ++It)
+	{
+		if (!It->IsHidden() && !It->IsCombatantDead())
+		{
+			++EnemiesAlive;
+		}
+	}
+	GEngine->AddOnScreenDebugMessage(1000 + Line++, 0.f, FColor::Orange, FString::Printf(TEXT("ENEMIES alive %d"), EnemiesAlive));
+
 	// Network: our measured round trip, engine ping, packet loss.
 	const float RttMs = LagCompensationComponent->GetRoundTripTime() * 1000.f;
 	const float PingMs = GetPlayerState() ? GetPlayerState()->GetPingInMilliseconds() : 0.f;
@@ -579,6 +592,40 @@ void AFPSHeroCharacter::DebugStrafe(int32 bEnable)
 void AFPSHeroCharacter::DebugResetStats()
 {
 	WeaponComponent->ResetStats();
+}
+
+void AFPSHeroCharacter::DebugSpawnEnemies(int32 Count)
+{
+	ServerDebugEnemies(FMath::Clamp(Count, 0, 100), false);
+}
+
+void AFPSHeroCharacter::DebugKillEnemies()
+{
+	ServerDebugEnemies(0, true);
+}
+
+void AFPSHeroCharacter::ServerDebugEnemies_Implementation(int32 SpawnCount, bool bKillAll)
+{
+	AFPSEnemySpawner* Spawner = nullptr;
+	for (TActorIterator<AFPSEnemySpawner> It(GetWorld()); It; ++It)
+	{
+		Spawner = *It;
+		break;
+	}
+	if (!Spawner)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Hero] No FPSEnemySpawner in the map"));
+		return;
+	}
+
+	if (bKillAll)
+	{
+		Spawner->KillAll();
+	}
+	else
+	{
+		Spawner->SpawnMixed(FMath::Clamp(SpawnCount, 0, 100));
+	}
 }
 
 // ---------------------------------------------------------------- Stun + ability feel

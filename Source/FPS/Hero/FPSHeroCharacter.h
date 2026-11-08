@@ -4,6 +4,7 @@
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
 #include "GameplayTagContainer.h"
+#include "FPSCombatantInterface.h"
 #include "FPSHeroCharacter.generated.h"
 
 class UAbilitySystemComponent;
@@ -27,7 +28,7 @@ struct FInputActionValue;
  * Init: server in PossessedBy, client in OnRep_PlayerState.
  */
 UCLASS(Abstract)
-class FPS_API AFPSHeroCharacter : public ACharacter, public IAbilitySystemInterface
+class FPS_API AFPSHeroCharacter : public ACharacter, public IAbilitySystemInterface, public IFPSCombatantInterface
 {
 	GENERATED_BODY()
 
@@ -56,8 +57,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hero")
 	USkeletalMeshComponent* GetFirstPersonMesh() const { return FirstPersonMesh; }
 
-	/** Server only. Called by the attribute set when health hits 0. */
+	/** Server only. Health hit 0. */
 	void HandleDeath();
+
+	// IFPSCombatantInterface
+	virtual bool IsCombatantDead() const override { return bIsDead; }
+	virtual void OnCombatantDied() override { HandleDeath(); }
 
 	UFUNCTION(BlueprintPure, Category = "Hero")
 	bool IsStunned() const;
@@ -95,6 +100,14 @@ public:
 	/** Zero the hit stats shown on screen. */
 	UFUNCTION(Exec)
 	void DebugResetStats();
+
+	/** Spawn enemies from the pool (runner/tank mixed). Usage: DebugSpawnEnemies 20 */
+	UFUNCTION(Exec)
+	void DebugSpawnEnemies(int32 Count);
+
+	/** Kill every active enemy. */
+	UFUNCTION(Exec)
+	void DebugKillEnemies();
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Components")
@@ -185,6 +198,9 @@ private:
 
 	UFUNCTION(Server, Reliable)
 	void ServerDebugDamage(bool bOthers, float Amount);
+
+	UFUNCTION(Server, Reliable)
+	void ServerDebugEnemies(int32 SpawnCount, bool bKillAll);
 
 	void ApplyDamageTo(AFPSHeroCharacter* Target, float Amount);
 

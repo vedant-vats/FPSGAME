@@ -1,5 +1,5 @@
 #include "FPSAttributeSet.h"
-#include "FPSHeroCharacter.h"
+#include "FPSCombatantInterface.h"
 #include "GameplayEffectExtension.h"
 #include "Net/UnrealNetwork.h"
 
@@ -51,8 +51,9 @@ void UFPSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbac
 		return;
 	}
 
-	AFPSHeroCharacter* Hero = Cast<AFPSHeroCharacter>(Data.Target.GetAvatarActor());
-	if (Hero && Hero->IsDead())
+	AActor* Avatar = Data.Target.GetAvatarActor();
+	IFPSCombatantInterface* Combatant = Cast<IFPSCombatantInterface>(Avatar);
+	if (Combatant && Combatant->IsCombatantDead())
 	{
 		return;
 	}
@@ -70,11 +71,11 @@ void UFPSAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbac
 	}
 
 	UE_LOG(LogTemp, Verbose, TEXT("[Damage] %s took %.1f (shield -%.1f, health -%.1f) -> HP %.1f SH %.1f"),
-		Hero ? *Hero->GetName() : TEXT("?"), Damage, Absorbed, Remaining, GetHealth(), GetShield());
+		*GetNameSafe(Avatar), Damage, Absorbed, Remaining, GetHealth(), GetShield());
 
-	if (GetHealth() <= 0.f && Hero)
+	if (GetHealth() <= 0.f && Combatant)
 	{
-		Hero->HandleDeath();
+		Combatant->OnCombatantDied();
 	}
 }
 
