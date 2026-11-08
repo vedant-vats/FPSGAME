@@ -4,7 +4,7 @@
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
 #include "GameplayTagContainer.h"
-#include "FPSCombatantInterface.h"
+#include "Core/FPSCombatantInterface.h"
 #include "FPSHeroCharacter.generated.h"
 
 class UAbilitySystemComponent;
@@ -120,7 +120,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Components")
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
 
-	/** Full-body FP mesh, owner only (template style). Camera sits on its head bone, so it MUST have a mesh. */
+	/** Full-body FP mesh, owner only. The camera sits on its head bone, so it must have a mesh assigned. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
 	TObjectPtr<USkeletalMeshComponent> FirstPersonMesh;
 

@@ -1,18 +1,18 @@
 #include "FPSHeroCharacter.h"
-#include "FPSPlayerState.h"
-#include "FPSAttributeSet.h"
-#include "FPSGameplayAbility.h"
-#include "FPSInputConfig.h"
-#include "FPSDamageEffect.h"
-#include "FPSGameplayTags.h"
-#include "FPSWeaponComponent.h"
-#include "FPSCollision.h"
-#include "FPSLagCompensationComponent.h"
-#include "FPSNetDebug.h"
-#include "FPSEnemyCharacter.h"
-#include "FPSEnemySpawner.h"
-#include "FPSGameState.h"
-#include "FPSWaveManager.h"
+#include "Core/FPSPlayerState.h"
+#include "GAS/FPSAttributeSet.h"
+#include "GAS/FPSGameplayAbility.h"
+#include "Hero/FPSInputConfig.h"
+#include "GAS/FPSDamageEffect.h"
+#include "Core/FPSGameplayTags.h"
+#include "Weapons/FPSWeaponComponent.h"
+#include "Core/FPSCollision.h"
+#include "Netcode/FPSLagCompensationComponent.h"
+#include "Netcode/FPSNetDebug.h"
+#include "Enemies/FPSEnemyCharacter.h"
+#include "Enemies/FPSEnemySpawner.h"
+#include "Core/FPSGameState.h"
+#include "Enemies/FPSWaveManager.h"
 #include "Engine/NetConnection.h"
 #include "GameFramework/PlayerState.h"
 #include "Kismet/GameplayStatics.h"
@@ -41,7 +41,7 @@ AFPSHeroCharacter::AFPSHeroCharacter()
 
 	GetCapsuleComponent()->InitCapsuleSize(34.f, 96.f);
 
-	// Same first-person setup as the 5.6 template: full-body FP mesh, camera on its head bone.
+	// Full-body first-person mesh with the camera on its head bone (first-person rendering for FOV/scale).
 	FirstPersonMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("FirstPersonMesh"));
 	FirstPersonMesh->SetupAttachment(GetMesh());
 	FirstPersonMesh->SetOnlyOwnerSee(true);
@@ -82,7 +82,7 @@ AFPSHeroCharacter::AFPSHeroCharacter()
 	WeaponComponent = CreateDefaultSubobject<UFPSWeaponComponent>(TEXT("WeaponComponent"));
 	LagCompensationComponent = CreateDefaultSubobject<UFPSLagCompensationComponent>(TEXT("LagCompensation"));
 
-	// Hitboxes: only the Weapon trace channel hits these. Week 3 rewinds them.
+	// Hitboxes: only the Weapon trace channel hits these. The lag compensation component rewinds them.
 	HeadHitbox = CreateDefaultSubobject<USphereComponent>(TEXT("HeadHitbox"));
 	HeadHitbox->SetupAttachment(GetMesh(), FName(TEXT("head")));
 	HeadHitbox->InitSphereRadius(14.f);
@@ -205,7 +205,7 @@ void AFPSHeroCharacter::PawnClientRestart()
 {
 	Super::PawnClientRestart();
 
-	// This is OUR pawn: turn on the ticks only the owner needs.
+	// Locally controlled pawn: enable the ticks only the owner needs.
 	WeaponComponent->SetComponentTickEnabled(true);
 	LagCompensationComponent->SetComponentTickEnabled(true);
 
@@ -424,16 +424,21 @@ void AFPSHeroCharacter::Respawn()
 
 void AFPSHeroCharacter::DebugDamageOthers(float Amount)
 {
+#if FPS_WITH_DEBUG_TOOLS
 	ServerDebugDamage(true, Amount);
+#endif
 }
 
 void AFPSHeroCharacter::DebugDamageSelf(float Amount)
 {
+#if FPS_WITH_DEBUG_TOOLS
 	ServerDebugDamage(false, Amount);
+#endif
 }
 
 void AFPSHeroCharacter::ServerDebugDamage_Implementation(bool bOthers, float Amount)
 {
+#if FPS_WITH_DEBUG_TOOLS
 	Amount = FMath::Clamp(Amount, 0.f, 1000.f);
 
 	if (!bOthers)
@@ -449,6 +454,7 @@ void AFPSHeroCharacter::ServerDebugDamage_Implementation(bool bOthers, float Amo
 			ApplyDamageTo(*It, Amount);
 		}
 	}
+#endif
 }
 
 void AFPSHeroCharacter::ApplyDamageTo(AFPSHeroCharacter* Target, float Amount)
@@ -472,7 +478,9 @@ void AFPSHeroCharacter::Tick(float DeltaSeconds)
 		return;
 	}
 
+#if FPS_WITH_DEBUG_TOOLS
 	TickDebugStrafe(DeltaSeconds);
+#endif
 
 	// FOV punch eases back to normal.
 	if (FovKickCurrent > 0.01f)
@@ -481,7 +489,7 @@ void AFPSHeroCharacter::Tick(float DeltaSeconds)
 		FirstPersonCamera->SetFieldOfView(BaseFov + FovKickCurrent);
 	}
 
-#if !UE_BUILD_SHIPPING
+#if FPS_WITH_DEBUG_TOOLS
 	if (bShowDebugReadout && GEngine)
 	{
 		DrawDebugReadout();
@@ -565,6 +573,7 @@ void AFPSHeroCharacter::TickDebugStrafe(float DeltaSeconds)
 
 void AFPSHeroCharacter::DebugAutoTest(int32 bEnable)
 {
+#if FPS_WITH_DEBUG_TOOLS
 	if (!bEnable)
 	{
 		WeaponComponent->SetAutoTestTarget(nullptr);
@@ -598,46 +607,60 @@ void AFPSHeroCharacter::DebugAutoTest(int32 bEnable)
 	WeaponComponent->ResetStats();
 	WeaponComponent->SetAutoTestTarget(Best);
 	WeaponComponent->StartFiring();
+#endif
 }
 
 void AFPSHeroCharacter::DebugStrafe(int32 bEnable)
 {
+#if FPS_WITH_DEBUG_TOOLS
 	bDebugStrafe = bEnable != 0;
 	StrafeTimer = 0.f;
+#endif
 }
 
 void AFPSHeroCharacter::DebugResetStats()
 {
+#if FPS_WITH_DEBUG_TOOLS
 	WeaponComponent->ResetStats();
+#endif
 }
 
 void AFPSHeroCharacter::DebugSpawnEnemies(int32 Count)
 {
+#if FPS_WITH_DEBUG_TOOLS
 	ServerDebugEnemies(FMath::Clamp(Count, 0, 100), false);
+#endif
 }
 
 void AFPSHeroCharacter::DebugKillEnemies()
 {
+#if FPS_WITH_DEBUG_TOOLS
 	ServerDebugEnemies(0, true);
+#endif
 }
 
 void AFPSHeroCharacter::DebugSkipWave()
 {
+#if FPS_WITH_DEBUG_TOOLS
 	ServerDebugSkipWave();
+#endif
 }
 
 void AFPSHeroCharacter::ServerDebugSkipWave_Implementation()
 {
+#if FPS_WITH_DEBUG_TOOLS
 	for (TActorIterator<AFPSWaveManager> It(GetWorld()); It; ++It)
 	{
 		It->SkipWave();
 		return;
 	}
 	UE_LOG(LogTemp, Warning, TEXT("[Hero] No FPSWaveManager in the map"));
+#endif
 }
 
 void AFPSHeroCharacter::ServerDebugEnemies_Implementation(int32 SpawnCount, bool bKillAll)
 {
+#if FPS_WITH_DEBUG_TOOLS
 	AFPSEnemySpawner* Spawner = nullptr;
 	for (TActorIterator<AFPSEnemySpawner> It(GetWorld()); It; ++It)
 	{
@@ -658,6 +681,7 @@ void AFPSHeroCharacter::ServerDebugEnemies_Implementation(int32 SpawnCount, bool
 	{
 		Spawner->SpawnMixed(FMath::Clamp(SpawnCount, 0, 100));
 	}
+#endif
 }
 
 // ---------------------------------------------------------------- Stun + ability feel
