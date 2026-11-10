@@ -733,3 +733,30 @@ void AFPSHeroCharacter::MulticastAbilityFX_Implementation(USoundBase* Sound, UNi
 	}
 	PlayAbilityFX(Sound, VFX, bAttach);
 }
+
+// ---------------------------------------------------------------- Hit react
+
+void AFPSHeroCharacter::ApplyHitReact(bool bHeavy, const FVector& Knockback)
+{
+	if (!HasAuthority() || bIsDead)
+	{
+		return;
+	}
+
+	if (!Knockback.IsNearlyZero())
+	{
+		LaunchCharacter(Knockback, true, true); // override = same shove every time, no stacking
+	}
+	ClientHitReact(bHeavy, Knockback);
+}
+
+void AFPSHeroCharacter::ClientHitReact_Implementation(bool bHeavy, FVector_NetQuantize10 Knockback)
+{
+	// Remote client: apply the same shove locally, so it doesn't wait for (and get snapped by) a server correction.
+	// Listen-server host already got it in ApplyHitReact.
+	if (!HasAuthority() && !Knockback.IsNearlyZero())
+	{
+		LaunchCharacter(Knockback, true, true);
+	}
+	OnHitReact(bHeavy);
+}

@@ -83,6 +83,10 @@ public:
 
 	virtual bool CanJumpInternal_Implementation() const override;
 
+	// ---- Hit react ----
+	/** Server. An enemy hit us. Knockback zero = no shove. Tells the owning client to play feedback. */
+	void ApplyHitReact(bool bHeavy, const FVector& Knockback);
+
 	// ---- Debug console commands (type in ~ console) ----
 	/** Damage every other hero. Usage: DebugDamageOthers 30 */
 	UFUNCTION(Exec)
@@ -196,7 +200,15 @@ protected:
 	UFUNCTION()
 	void OnRep_IsDead();
 
+	/** Owning client only: we got hit. Build the camera shake + red screen flash in the BP. bHeavy = tank charge. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Hero|Feel")
+	void OnHitReact(bool bHeavy);
+
 private:
+	/** Unreliable: pure feedback. If one is dropped, the server's shove still lands via movement correction. */
+	UFUNCTION(Client, Unreliable)
+	void ClientHitReact(bool bHeavy, FVector_NetQuantize10 Knockback);
+
 	static void ConfigureHitbox(UShapeComponent* Hitbox);
 	void InitAbilitySystem();
 	void ApplyDeathState();

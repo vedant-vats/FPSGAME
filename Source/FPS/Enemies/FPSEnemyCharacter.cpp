@@ -306,6 +306,10 @@ void AFPSEnemyCharacter::FinishAttack()
 	if (TargetASC && !TargetASC->HasMatchingGameplayTag(FPSTags::State_Dead))
 	{
 		UFPSDamageEffect::ApplyDamage(AbilitySystemComponent, TargetASC, AttackDamage * GetTierDamageMultiplier(), this);
+		if (AFPSHeroCharacter* Hero = Cast<AFPSHeroCharacter>(Target))
+		{
+			Hero->ApplyHitReact(false, FVector::ZeroVector); // light: feedback, no shove
+		}
 	}
 }
 
@@ -463,6 +467,15 @@ void AFPSEnemyCharacter::ChargeHitPlayer(AActor* Target)
 	if (TargetASC && !TargetASC->HasMatchingGameplayTag(FPSTags::State_Dead))
 	{
 		UFPSDamageEffect::ApplyDamage(AbilitySystemComponent, TargetASC, AttackDamage * GetTierDamageMultiplier(), this);
+
+		// Heavy: shove away from the tank (along the rush if we're right on top of it).
+		if (AFPSHeroCharacter* Hero = Cast<AFPSHeroCharacter>(Target))
+		{
+			FVector Away = Target->GetActorLocation() - GetActorLocation();
+			Away.Z = 0.f;
+			Away = Away.IsNearlyZero() ? ChargeDirection : Away.GetSafeNormal();
+			Hero->ApplyHitReact(true, Away * ChargeKnockback + FVector(0.f, 0.f, ChargeKnockUp));
+		}
 	}
 }
 

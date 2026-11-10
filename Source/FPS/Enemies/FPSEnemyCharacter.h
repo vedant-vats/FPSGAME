@@ -133,6 +133,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "s", EditCondition = "bCanCharge"))
 	float ChargeDuration = 1.5f;
 
+	/** Charge hit shoves the player this hard, away from the tank. */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "cm/s", EditCondition = "bCanCharge"))
+	float ChargeKnockback = 600.f;
+
+	/** Small upward pop so the shove doesn't drag on the floor. */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "cm/s", EditCondition = "bCanCharge"))
+	float ChargeKnockUp = 250.f;
+
 	/** Rushing into a wall or cover stuns the tank this long (reward for baiting it). */
 	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "s", EditCondition = "bCanCharge"))
 	float WallStunDuration = 1.f;
