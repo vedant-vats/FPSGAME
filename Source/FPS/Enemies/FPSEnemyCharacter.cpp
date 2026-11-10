@@ -5,6 +5,7 @@
 #include "Enemies/FPSEnemyAIController.h"
 #include "Core/FPSGameplayTags.h"
 #include "Netcode/FPSLagCompensationComponent.h"
+#include "Hero/FPSHeroCharacter.h"
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"
@@ -13,14 +14,18 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SphereComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 
 AFPSEnemyCharacter::AFPSEnemyCharacter()
 {
-	// No actor tick at all. Movement ticks itself, AI thinks on a timer.
-	PrimaryActorTick.bCanEverTick = false;
+	// No actor tick normally. Movement ticks itself, AI thinks on a timer.
+	// Tick is switched on ONLY during a charge rush (~1 s every 6 s, tanks only).
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
 
 	// GAS: lives on the enemy itself. MINIMAL = no gameplay effects sent to clients, only tags + attributes.
 	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
@@ -88,6 +93,7 @@ void AFPSEnemyCharacter::BeginPlay()
 
 	AbilitySystemComponent->InitAbilityActorInfo(this, this);
 	GetCharacterMovement()->MaxWalkSpeed = MoveSpeed;
+	DefaultMaxAcceleration = GetCharacterMovement()->MaxAcceleration;
 
 	if (HasAuthority())
 	{
@@ -114,6 +120,11 @@ void AFPSEnemyCharacter::Activate(const FVector& FloorLocation, const FRotator& 
 	GetWorldTimerManager().ClearTimer(CorpseTimer);
 	bActive = true;
 	bIsDead = false;
+
+	// Charge: clean state, and no charge in the first few seconds out of the gate.
+	ChargeState = EFPSChargeState::None;
+	GetCharacterMovement()->MaxWalkSpeed = MoveSpeed;
+	NextChargeTime = GetWorld()->GetTimeSeconds() + ChargeCooldown * 0.5f;
 
 	// Size first, then stand the (possibly bigger) capsule on the floor point.
 	Tier = InTier;
@@ -147,6 +158,8 @@ void AFPSEnemyCharacter::Activate(const FVector& FloorLocation, const FRotator& 
 void AFPSEnemyCharacter::Deactivate()
 {
 	bActive = false;
+	EndCharge();
+	ClearWallStun();
 	GetWorldTimerManager().ClearTimer(AttackTimer);
 	GetWorldTimerManager().ClearTimer(CorpseTimer);
 
@@ -187,6 +200,8 @@ void AFPSEnemyCharacter::OnCombatantDied()
 	AbilitySystemComponent->CancelAllAbilities();
 	AbilitySystemComponent->AddLooseGameplayTag(FPSTags::State_Dead);
 	GetWorldTimerManager().ClearTimer(AttackTimer);
+	EndCharge();
+	ClearWallStun();
 
 	if (AFPSEnemyAIController* AI = GetController<AFPSEnemyAIController>())
 	{
@@ -309,14 +324,195 @@ void AFPSEnemyCharacter::OnStunTagChanged(const FGameplayTag Tag, int32 NewCount
 {
 	if (NewCount > 0)
 	{
-		// Stunned: stop now and cancel the swing in progress.
+		// Stunned: stop now and cancel the swing (and any charge) in progress.
 		GetWorldTimerManager().ClearTimer(AttackTimer);
+		EndCharge();
 		if (AFPSEnemyAIController* AI = GetController<AFPSEnemyAIController>())
 		{
 			AI->StopMovement();
 		}
 	}
 	// Stun ended: the AI picks up on its next think.
+}
+
+// ---------------------------------------------------------------- Charge
+
+bool AFPSEnemyCharacter::CanStartCharge(const AActor* Target) const
+{
+	if (!bCanCharge || !Target || ChargeState != EFPSChargeState::None || !bActive || bIsDead || IsStunned()
+		|| GetWorld()->GetTimeSeconds() < NextChargeTime)
+	{
+		return false;
+	}
+
+	const float Distance = FVector::Dist2D(Target->GetActorLocation(), GetActorLocation());
+	if (Distance < ChargeMinRange || Distance > ChargeMaxRange)
+	{
+		return false;
+	}
+
+	// Line of sight: never charge through a wall. One trace, only when everything else passed.
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(EnemyChargeLOS), false, this);
+	Params.AddIgnoredActor(Target);
+	return !GetWorld()->LineTraceTestByChannel(GetActorLocation(), Target->GetActorLocation(), ECC_Visibility, Params);
+}
+
+void AFPSEnemyCharacter::StartCharge(AActor* Target)
+{
+	if (!CanStartCharge(Target))
+	{
+		return;
+	}
+
+	ChargeState = EFPSChargeState::Windup;
+	ChargeTarget = Target;
+
+	FRotator Face = (Target->GetActorLocation() - GetActorLocation()).Rotation();
+	Face.Pitch = 0.f;
+	Face.Roll = 0.f;
+	SetActorRotation(Face);
+
+	MulticastChargeWindup();
+	GetWorldTimerManager().SetTimer(ChargeTimer, this, &ThisClass::BeginChargeRun, ChargeWindup, false);
+}
+
+void AFPSEnemyCharacter::BeginChargeRun()
+{
+	AActor* Target = ChargeTarget.Get();
+	if (!bActive || bIsDead || IsStunned() || !Target)
+	{
+		EndCharge();
+		return;
+	}
+
+	// Commit: aim at where the player is NOW and run past it. No homing = a sidestep or Dash beats it.
+	FVector ToTarget = Target->GetActorLocation() - GetActorLocation();
+	ToTarget.Z = 0.f;
+	ChargeDirection = ToTarget.GetSafeNormal();
+	ChargeEndPoint = Target->GetActorLocation() + ChargeDirection * ChargeOvershoot;
+	ChargeElapsed = 0.f;
+	ChargeState = EFPSChargeState::Running;
+
+	// Path following off; the rush drives the movement itself.
+	if (AFPSEnemyAIController* AI = GetController<AFPSEnemyAIController>())
+	{
+		AI->StopMovement();
+	}
+
+	// Walking (not NavWalking) so walls and cover physically stop it -> wall stun.
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	Movement->SetMovementMode(MOVE_Walking);
+	Movement->MaxWalkSpeed = ChargeSpeed;
+	Movement->MaxAcceleration = 8000.f; // full speed almost instantly
+	Movement->Velocity = ChargeDirection * ChargeSpeed;
+
+	SetActorTickEnabled(true);
+}
+
+void AFPSEnemyCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	if (ChargeState != EFPSChargeState::Running)
+	{
+		SetActorTickEnabled(false);
+		return;
+	}
+
+	ChargeElapsed += DeltaSeconds;
+	AddMovementInput(ChargeDirection, 1.f);
+
+	// 1) Ran into a player? (max 4 heroes: a plain loop is the cheapest check)
+	const FVector MyLocation = GetActorLocation();
+	for (TActorIterator<AFPSHeroCharacter> It(GetWorld()); It; ++It)
+	{
+		if (!It->IsDead()
+			&& FVector::Dist2D(It->GetActorLocation(), MyLocation) <= AttackRange
+			&& FMath::Abs(It->GetActorLocation().Z - MyLocation.Z) < 200.f)
+		{
+			ChargeHitPlayer(*It);
+			return;
+		}
+	}
+
+	// 2) Blocked by a wall / cover / another enemy: speed collapses. Short grace while it speeds up.
+	if (ChargeElapsed > 0.15f && GetVelocity().Size2D() < ChargeSpeed * 0.25f)
+	{
+		ChargeHitWall();
+		return;
+	}
+
+	// 3) Passed the end point, or safety timeout.
+	if (ChargeElapsed >= ChargeDuration
+		|| FVector::DotProduct(ChargeEndPoint - MyLocation, ChargeDirection) <= 0.f)
+	{
+		EndCharge();
+	}
+}
+
+void AFPSEnemyCharacter::ChargeHitPlayer(AActor* Target)
+{
+	EndCharge();
+	GetCharacterMovement()->StopMovementImmediately();
+
+	// Instant hit (the windup was the warning). Same damage as the normal attack.
+	NextAttackTime = GetWorld()->GetTimeSeconds() + AttackCooldown;
+	MulticastPlayAttack();
+
+	UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
+	if (TargetASC && !TargetASC->HasMatchingGameplayTag(FPSTags::State_Dead))
+	{
+		UFPSDamageEffect::ApplyDamage(AbilitySystemComponent, TargetASC, AttackDamage * GetTierDamageMultiplier(), this);
+	}
+}
+
+void AFPSEnemyCharacter::ChargeHitWall()
+{
+	EndCharge();
+	GetCharacterMovement()->StopMovementImmediately();
+
+	// Stunned tag = the AI stands still (same path as Shockwave's stun). Server only, no replication needed.
+	bWallStunned = true;
+	AbilitySystemComponent->AddLooseGameplayTag(FPSTags::State_Stunned);
+	GetWorldTimerManager().SetTimer(WallStunTimer, this, &ThisClass::ClearWallStun, WallStunDuration, false);
+}
+
+void AFPSEnemyCharacter::ClearWallStun()
+{
+	GetWorldTimerManager().ClearTimer(WallStunTimer);
+	if (bWallStunned)
+	{
+		bWallStunned = false;
+		AbilitySystemComponent->RemoveLooseGameplayTag(FPSTags::State_Stunned);
+	}
+}
+
+void AFPSEnemyCharacter::EndCharge()
+{
+	if (ChargeState == EFPSChargeState::None)
+	{
+		return;
+	}
+
+	ChargeState = EFPSChargeState::None;
+	ChargeTarget = nullptr;
+	SetActorTickEnabled(false);
+	GetWorldTimerManager().ClearTimer(ChargeTimer);
+
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	Movement->MaxWalkSpeed = MoveSpeed;
+	Movement->MaxAcceleration = DefaultMaxAcceleration;
+	if (bActive && !bIsDead && Movement->MovementMode == MOVE_Walking)
+	{
+		Movement->SetMovementMode(MOVE_NavWalking); // back to cheap nav movement
+	}
+
+	NextChargeTime = GetWorld()->GetTimeSeconds() + ChargeCooldown;
+}
+
+void AFPSEnemyCharacter::MulticastChargeWindup_Implementation()
+{
+	OnChargeWindup();
 }
 
 // ---------------------------------------------------------------- Tiers

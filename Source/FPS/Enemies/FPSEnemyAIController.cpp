@@ -62,6 +62,12 @@ void AFPSEnemyAIController::Think()
 		return;
 	}
 
+	// Charge: windup = stand still (warning playing), rush = the enemy drives itself. Hands off.
+	if (Enemy->IsChargeWindup() || Enemy->IsChargeRunning())
+	{
+		return;
+	}
+
 	AActor* Target = FindNearestTarget();
 	if (!Target)
 	{
@@ -77,6 +83,15 @@ void AFPSEnemyAIController::Think()
 		StopMovement();
 		CurrentTarget = nullptr;
 		Enemy->StartAttack(Target);
+		return;
+	}
+
+	// Player is kiting at mid range and in sight: stop and charge.
+	if (Enemy->CanStartCharge(Target))
+	{
+		StopMovement();
+		CurrentTarget = nullptr; // so the move is re-sent when the run starts
+		Enemy->StartCharge(Target);
 		return;
 	}
 

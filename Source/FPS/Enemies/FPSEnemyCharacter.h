@@ -19,6 +19,14 @@ class AFPSEnemySpawner;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnEnemyDied, AFPSEnemyCharacter*);
 
+/** Charge steps (server). Windup = standing still, telegraphing. Running = straight-line bull rush. */
+enum class EFPSChargeState : uint8
+{
+	None,
+	Windup,
+	Running
+};
+
 /**
  * Pooled PvE enemy. Stats live on the Blueprint's class defaults (shared by every enemy of that type).
  *  - ASC on itself, MINIMAL replication: clients only get tags + attributes.
@@ -35,6 +43,7 @@ public:
 
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override; // only enabled during a charge rush
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	// IFPSCombatantInterface
@@ -55,6 +64,13 @@ public:
 	bool CanAttack() const;
 	void StartAttack(AActor* Target);
 	float GetAttackRange() const { return AttackRange; }
+
+	// ---- Charge (server, called by the AI controller). Only if bCanCharge is ticked. ----
+	bool CanStartCharge(const AActor* Target) const;
+	void StartCharge(AActor* Target);
+	void EndCharge();
+	bool IsChargeWindup() const { return ChargeState == EFPSChargeState::Windup; }
+	bool IsChargeRunning() const { return ChargeState == EFPSChargeState::Running; }
 
 	// ---- HUD ----
 	const FText& GetDisplayName() const { return DisplayName; }
@@ -88,6 +104,45 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Attack")
 	TObjectPtr<UAnimMontage> AttackMontage;
+
+	// ---- Charge (tank): stop, telegraph, then sprint at a player who is kiting it ----
+	/** Tick this on the tank Blueprint. */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge")
+	bool bCanCharge = false;
+
+	/** Only charge if the target is at least this far (closer = just walk and swing). */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "cm", EditCondition = "bCanCharge"))
+	float ChargeMinRange = 600.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "cm", EditCondition = "bCanCharge"))
+	float ChargeMaxRange = 1500.f;
+
+	/** Stand still this long before running (the player's warning). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Enemy|Charge", meta = (Units = "s", EditCondition = "bCanCharge"))
+	float ChargeWindup = 0.4f;
+
+	/** Rush speed. Faster than the player on purpose: you dodge it sideways, you don't outrun it. */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "cm/s", EditCondition = "bCanCharge"))
+	float ChargeSpeed = 1200.f;
+
+	/** The rush locks the target's position at the end of the windup and runs this far past it. */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "cm", EditCondition = "bCanCharge"))
+	float ChargeOvershoot = 300.f;
+
+	/** Safety cap on the rush length. */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "s", EditCondition = "bCanCharge"))
+	float ChargeDuration = 1.5f;
+
+	/** Rushing into a wall or cover stuns the tank this long (reward for baiting it). */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "s", EditCondition = "bCanCharge"))
+	float WallStunDuration = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (Units = "s", EditCondition = "bCanCharge"))
+	float ChargeCooldown = 6.f;
+
+	/** Runs on every machine when the windup starts. Hook the warning visuals/sound here in the BP. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Charge")
+	void OnChargeWindup();
 
 	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Feel")
 	TObjectPtr<USoundBase> DeathSound;
@@ -158,6 +213,26 @@ private:
 
 	UFUNCTION(NetMulticast, Unreliable)
 	void MulticastPlayAttack();
+
+	void BeginChargeRun();
+	void ChargeHitPlayer(AActor* Target);
+	void ChargeHitWall();
+	void ClearWallStun();
+
+	/** Reliable: the warning is what makes the charge fair, so it must arrive. Rare (cooldown), so cheap. */
+	UFUNCTION(NetMulticast, Reliable)
+	void MulticastChargeWindup();
+
+	EFPSChargeState ChargeState = EFPSChargeState::None;
+	float NextChargeTime = 0.f;
+	float ChargeElapsed = 0.f;
+	FVector ChargeDirection = FVector::ForwardVector;
+	FVector ChargeEndPoint = FVector::ZeroVector;
+	TWeakObjectPtr<AActor> ChargeTarget;
+	float DefaultMaxAcceleration = 0.f;
+	bool bWallStunned = false;
+	FTimerHandle ChargeTimer;
+	FTimerHandle WallStunTimer;
 
 	bool bActive = false;
 	float NextAttackTime = 0.f;
