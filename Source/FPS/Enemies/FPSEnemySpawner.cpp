@@ -49,7 +49,7 @@ AFPSEnemyCharacter* AFPSEnemySpawner::CreatePooledEnemy(TSubclassOf<AFPSEnemyCha
 	return Enemy;
 }
 
-bool AFPSEnemySpawner::FindSpawnLocation(FVector& OutLocation) const
+bool AFPSEnemySpawner::FindSpawnLocation(FVector& OutLocation)
 {
 	UNavigationSystemV1* NavSys = UNavigationSystemV1::GetNavigationSystem(GetWorld());
 	if (!NavSys)
@@ -62,11 +62,17 @@ bool AFPSEnemySpawner::FindSpawnLocation(FVector& OutLocation) const
 	float Radius = SpawnRadius;
 	if (SpawnPoints.Num() > 0)
 	{
-		const AActor* Point = SpawnPoints[FMath::RandRange(0, SpawnPoints.Num() - 1)];
-		if (Point)
+		// Round robin: gate 1, 2, 3, 1, 2, 3... Skips empty slots in the array.
+		for (int32 Tries = 0; Tries < SpawnPoints.Num(); ++Tries)
 		{
-			Origin = Point->GetActorLocation();
-			Radius = 200.f; // small spread around the chosen point
+			const AActor* Point = SpawnPoints[NextSpawnPointIndex % SpawnPoints.Num()];
+			NextSpawnPointIndex++;
+			if (Point)
+			{
+				Origin = Point->GetActorLocation();
+				Radius = 200.f; // small spread around the chosen point
+				break;
+			}
 		}
 	}
 

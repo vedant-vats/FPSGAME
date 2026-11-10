@@ -51,7 +51,7 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Spawner")
 	TArray<FFPSEnemyPoolEntry> Pools;
 
-	/** Optional. If empty, enemies spawn at random navmesh points within SpawnRadius. */
+	/** Optional. Used in order (round robin). If empty, enemies spawn at random navmesh points within SpawnRadius. */
 	UPROPERTY(EditAnywhere, Category = "Spawner")
 	TArray<TObjectPtr<AActor>> SpawnPoints;
 
@@ -60,11 +60,14 @@ protected:
 
 private:
 	AFPSEnemyCharacter* CreatePooledEnemy(TSubclassOf<AFPSEnemyCharacter> EnemyClass);
-	bool FindSpawnLocation(FVector& OutLocation) const;
+	bool FindSpawnLocation(FVector& OutLocation);
 	void HandleEnemyDied(AFPSEnemyCharacter* Enemy);
 
 	UPROPERTY()
 	TArray<TObjectPtr<AFPSEnemyCharacter>> AllEnemies;
 
 	int32 NextPoolIndex = 0;
+
+	/** Round robin index into SpawnPoints, so every gate gets traffic. */
+	int32 NextSpawnPointIndex = 0;
 };
