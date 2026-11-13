@@ -17,6 +17,12 @@
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
+#include "HAL/IConsoleManager.h"
+
+// Set to 0 on BOTH windows for the rewind accuracy test (300 auto-aim shots would overheat).
+static TAutoConsoleVariable<int32> CVarFPSOverheat(
+	TEXT("fps.Overheat"), 1,
+	TEXT("1 = rifle overheats (default). 0 = off (metrics tests)."));
 
 UFPSWeaponComponent::UFPSWeaponComponent()
 {
@@ -104,7 +110,18 @@ void UFPSWeaponComponent::FireShot()
 		return;
 	}
 
-	LastFireTime = World->GetTimeSeconds();
+	// Overheated: skip this tick of the fire timer. Holding the trigger resumes firing when the lockout ends.
+	const float Now = World->GetTimeSeconds();
+	if (IsHeatEnabled() && Now < ClientHeat.OverheatUntil)
+	{
+		return;
+	}
+
+	LastFireTime = Now;
+	if (IsHeatEnabled())
+	{
+		AddHeat(ClientHeat, Now, 1.f, OverheatLockout);
+	}
 
 	FVector EyeLocation;
 	FRotator EyeRotation;
@@ -237,6 +254,20 @@ void UFPSWeaponComponent::ServerFire_Implementation(FVector_NetQuantize Start, F
 		return;
 	}
 	ServerLastFireTime = Now;
+
+	// Check: overheat (server is the authority).
+	// Network jitter can bunch shots, so the server cools slightly less than the client predicted:
+	// allow one extra shot before overheating, and a slightly shorter lockout, so honest clients never get rejected.
+	if (IsHeatEnabled())
+	{
+		const float NowF = static_cast<float>(Now);
+		if (NowF < ServerHeat.OverheatUntil)
+		{
+			UE_LOG(LogTemp, Verbose, TEXT("[Weapon] %s fired while overheated, shot rejected"), *Pawn->GetName());
+			return;
+		}
+		AddHeat(ServerHeat, NowF, 1.f + HeatPerShot, OverheatLockout * 0.8f);
+	}
 
 	// Check 2: shot must start near the shooter.
 	if (FVector::Dist(Start, Pawn->GetActorLocation()) > 200.f)
@@ -405,6 +436,49 @@ FVector UFPSWeaponComponent::GetMuzzleLocation(bool bFirstPerson) const
 		return Mesh->GetComponentLocation();
 	}
 	return GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector;
+}
+
+// ---------------------------------------------------------------- Overheat
+
+bool UFPSWeaponComponent::IsHeatEnabled() const
+{
+	return HeatPerShot > 0.f && CVarFPSOverheat.GetValueOnGameThread() != 0;
+}
+
+float UFPSWeaponComponent::GetHeatAt(const FHeatState& State, float Now) const
+{
+	if (Now < State.OverheatUntil)
+	{
+		// Locked out: the bar drains from full to empty over the lockout.
+		return OverheatLockout > 0.f ? (State.OverheatUntil - Now) / OverheatLockout : 0.f;
+	}
+	const float CoolingTime = FMath::Max(0.f, Now - State.LastShotTime - HeatCoolDelay);
+	return FMath::Max(0.f, State.Heat - CoolingTime * HeatCoolRate);
+}
+
+bool UFPSWeaponComponent::AddHeat(FHeatState& State, float Now, float OverheatAt, float Lockout) const
+{
+	State.Heat = GetHeatAt(State, Now) + HeatPerShot;
+	State.LastShotTime = Now;
+	if (State.Heat >= OverheatAt - KINDA_SMALL_NUMBER)
+	{
+		State.Heat = 0.f; // starts empty once the lockout ends
+		State.OverheatUntil = Now + Lockout;
+		return true;
+	}
+	return false;
+}
+
+float UFPSWeaponComponent::GetHeatPercent() const
+{
+	const UWorld* World = GetWorld();
+	return (World && IsHeatEnabled()) ? FMath::Clamp(GetHeatAt(ClientHeat, World->GetTimeSeconds()), 0.f, 1.f) : 0.f;
+}
+
+bool UFPSWeaponComponent::IsOverheated() const
+{
+	const UWorld* World = GetWorld();
+	return World && IsHeatEnabled() && World->GetTimeSeconds() < ClientHeat.OverheatUntil;
 }
 
 void UFPSWeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)

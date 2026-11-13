@@ -67,6 +67,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hero")
 	bool IsStunned() const;
 
+	/** Local only: help screen held open (F1 / H). */
+	bool IsAbilityHelpShown() const { return bAbilityHelpHeld; }
+
 	/** Server time this hero respawns (owner only, for the HUD countdown). */
 	float GetRespawnServerTime() const { return RespawnServerTime; }
 
@@ -231,6 +234,11 @@ private:
 	void ApplyDamageTo(AFPSHeroCharacter* Target, float Amount);
 
 	void DrawDebugReadout();
+	/** F10 (dev builds only): hide/show the debug readout + all engine on-screen messages. Game HUD stays. */
+	void ToggleScreenMessages();
+	void ShowAbilityHelp() { bAbilityHelpHeld = true; }
+	void HideAbilityHelp() { bAbilityHelpHeld = false; }
+	bool bAbilityHelpHeld = false;
 	void TickDebugStrafe(float DeltaSeconds);
 
 	FTimerHandle RespawnTimer;

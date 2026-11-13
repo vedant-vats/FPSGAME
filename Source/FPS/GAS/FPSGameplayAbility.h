@@ -32,6 +32,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI")
 	FText HUDKey;
 
+	/** One or two lines for the ability help screen (hold F1 / H). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI", meta = (MultiLine = true))
+	FText HUDDescription;
+
+	/** Cooldown length read from the cooldown GE (so the help screen never shows a stale number). 0 = none / not static. */
+	float GetCooldownSeconds() const;
+
 	virtual bool CheckCooldown(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo,
 		FGameplayTagContainer* OptionalRelevantTags = nullptr) const override;
 

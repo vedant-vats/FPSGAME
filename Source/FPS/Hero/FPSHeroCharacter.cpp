@@ -29,6 +29,7 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
+#include "InputCoreTypes.h"
 #include "Engine/Engine.h"
 #include "Engine/LocalPlayer.h"
 #include "EngineUtils.h"
@@ -254,6 +255,17 @@ void AFPSHeroCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 		EIC->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
 		EIC->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
 	}
+
+	// Ability help: hold to show. F1 in packaged builds (in PIE the editor grabs F1 for wireframe), H everywhere.
+	PlayerInputComponent->BindKey(EKeys::F1, IE_Pressed, this, &ThisClass::ShowAbilityHelp);
+	PlayerInputComponent->BindKey(EKeys::F1, IE_Released, this, &ThisClass::HideAbilityHelp);
+	PlayerInputComponent->BindKey(EKeys::H, IE_Pressed, this, &ThisClass::ShowAbilityHelp);
+	PlayerInputComponent->BindKey(EKeys::H, IE_Released, this, &ThisClass::HideAbilityHelp);
+
+#if FPS_WITH_DEBUG_TOOLS
+	// Plain key binding (no Input Action asset): dev-only, compiled out of Shipping.
+	PlayerInputComponent->BindKey(EKeys::F10, IE_Pressed, this, &ThisClass::ToggleScreenMessages);
+#endif
 
 	if (InputConfig)
 	{
@@ -493,6 +505,24 @@ void AFPSHeroCharacter::Tick(float DeltaSeconds)
 	if (bShowDebugReadout && GEngine)
 	{
 		DrawDebugReadout();
+	}
+#endif
+}
+
+void AFPSHeroCharacter::ToggleScreenMessages()
+{
+#if FPS_WITH_DEBUG_TOOLS
+	if (!GEngine)
+	{
+		return;
+	}
+	// Engine flag is the source of truth: it survives respawn (new hero), so the toggle never gets out of sync.
+	const bool bShow = !GEngine->bEnableOnScreenDebugMessages;
+	GEngine->bEnableOnScreenDebugMessages = bShow;
+	bShowDebugReadout = bShow;
+	if (!bShow)
+	{
+		GEngine->ClearOnScreenDebugMessages();
 	}
 #endif
 }

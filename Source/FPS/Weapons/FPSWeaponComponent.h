@@ -56,6 +56,13 @@ public:
 	bool WasLastShotRewound() const { return bLastShotRewound; }
 	float GetLastRewindMs() const { return LastRewindMs; }
 
+	/** Overheat for the HUD (owning client's predicted value). 0-1. */
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	float GetHeatPercent() const;
+
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	bool IsOverheated() const;
+
 	/** For the HUD hit marker (client, server-confirmed hits only). */
 	float GetLastHitTime() const { return LastHitTime; }
 	bool WasLastHitHeadshot() const { return bLastHitHeadshot; }
@@ -80,6 +87,23 @@ protected:
 	// ---- Fire rate ----
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Fire", meta = (ClampMin = 1, Units = "Hz"))
 	float ShotsPerSecond = 10.f;
+
+	// ---- Overheat (no reload anim needed: hold the trigger too long and the gun locks) ----
+	/** Heat added per shot (0.02 = 50 shots of non-stop fire). 0 = overheat off. */
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Heat", meta = (ClampMin = 0, ClampMax = 1))
+	float HeatPerShot = 0.02f;
+
+	/** Heat only starts dropping after this long without a shot. */
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Heat", meta = (Units = "s"))
+	float HeatCoolDelay = 0.3f;
+
+	/** Heat lost per second while cooling (0.4 = full bar in 2.5 s). */
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Heat")
+	float HeatCoolRate = 0.4f;
+
+	/** Can't fire this long after overheating. */
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Heat", meta = (Units = "s"))
+	float OverheatLockout = 1.5f;
 
 	// ---- Spread (cone half-angle, degrees) ----
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon|Spread")
@@ -146,6 +170,21 @@ private:
 
 	UPROPERTY()
 	TObjectPtr<USkeletalMeshComponent> WeaponMeshTP;
+
+	/** Heat is computed from timestamps on demand: no tick needed. */
+	struct FHeatState
+	{
+		float Heat = 0.f;              // value right after the last shot
+		float LastShotTime = -1000.f;
+		float OverheatUntil = -1000.f;
+	};
+	float GetHeatAt(const FHeatState& State, float Now) const;
+	/** Adds one shot of heat. Returns true if this shot overheated the gun. */
+	bool AddHeat(FHeatState& State, float Now, float OverheatAt, float Lockout) const;
+	bool IsHeatEnabled() const;
+
+	FHeatState ClientHeat;  // owning client: prediction, drives the HUD
+	FHeatState ServerHeat;  // server: authority, rejects shots while overheated
 
 	FTimerHandle FireTimer;
 	float LastFireTime = -1000.f;          // client

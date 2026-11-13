@@ -58,3 +58,14 @@ void UFPSGameplayAbility::GetCooldownState(UAbilitySystemComponent* ASC, float& 
 	const int32 UsedCharges = ASC->GetGameplayEffectCount(CooldownGE->GetClass(), nullptr);
 	OutChargesReady = FMath::Max(0, MaxCharges - UsedCharges);
 }
+
+float UFPSGameplayAbility::GetCooldownSeconds() const
+{
+	const UGameplayEffect* Cooldown = GetCooldownGameplayEffect();
+	float Seconds = 0.f;
+	if (Cooldown && Cooldown->DurationMagnitude.GetStaticMagnitudeIfPossible(1.f, Seconds))
+	{
+		return Seconds;
+	}
+	return 0.f;
+}
