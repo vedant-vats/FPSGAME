@@ -152,6 +152,22 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Charge")
 	void OnChargeWindup();
 
+	/** Every machine: the rush starts moving (whoosh/roar). */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Charge")
+	void OnChargeRunStarted();
+
+	/** Every machine: the rush hit a player (bHitWall false) or a wall/cover/enemy (true: wall stun starts). */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Charge")
+	void OnChargeImpact(bool bHitWall);
+
+	/** Every machine: the wall stun is over (remove the dizzy effect). */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Enemy|Charge")
+	void OnWallStunEnd();
+
+	/** Animation speed during the rush, so the legs keep up with the sprint (1 = normal). */
+	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Charge", meta = (ClampMin = 0.5, ClampMax = 4, EditCondition = "bCanCharge"))
+	float ChargeAnimPlayRate = 1.8f;
+
 	UPROPERTY(EditDefaultsOnly, Category = "Enemy|Feel")
 	TObjectPtr<USoundBase> DeathSound;
 
@@ -230,6 +246,20 @@ private:
 	/** Reliable: the warning is what makes the charge fair, so it must arrive. Rare (cooldown), so cheap. */
 	UFUNCTION(NetMulticast, Reliable)
 	void MulticastChargeWindup();
+
+	// Cosmetic only, so Unreliable. The anim rate is also reset in ResetVisuals/ApplyDeathVisuals,
+	// so a dropped "ended" message can't leave a tank running in fast-forward.
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastChargeRunStarted();
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastChargeRunEnded();
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastChargeImpact(bool bHitWall);
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastWallStunEnd();
 
 	EFPSChargeState ChargeState = EFPSChargeState::None;
 	float NextChargeTime = 0.f;

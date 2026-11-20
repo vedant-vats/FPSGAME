@@ -12,4 +12,7 @@ Plugins/*/Intermediate/
 *.suo
 *.user
 # Misc
-Claude outputs/
+
+
+# Sonniss GDC sounds: licence forbids sharing raw files, keep out of the repo
+/Content/Audio/

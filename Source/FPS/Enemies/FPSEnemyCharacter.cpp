@@ -233,6 +233,7 @@ void AFPSEnemyCharacter::ApplyDeathVisuals()
 	GetCharacterMovement()->DisableMovement();
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
+	GetMesh()->GlobalAnimRateScale = 1.f; // in case it died mid-rush
 	GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));
 	GetMesh()->SetSimulatePhysics(true);
 
@@ -252,6 +253,7 @@ void AFPSEnemyCharacter::ResetVisuals()
 		MeshComp->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 		MeshComp->SetRelativeLocationAndRotation(GetBaseTranslationOffset(), GetBaseRotationOffset());
 	}
+	MeshComp->GlobalAnimRateScale = 1.f; // fresh from the pool: never in rush fast-forward
 	MeshComp->SetCollisionProfileName(TEXT("NoCollision"));
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 }
@@ -396,6 +398,7 @@ void AFPSEnemyCharacter::BeginChargeRun()
 	ChargeEndPoint = Target->GetActorLocation() + ChargeDirection * ChargeOvershoot;
 	ChargeElapsed = 0.f;
 	ChargeState = EFPSChargeState::Running;
+	MulticastChargeRunStarted();
 
 	// Path following off; the rush drives the movement itself.
 	if (AFPSEnemyAIController* AI = GetController<AFPSEnemyAIController>())
@@ -457,6 +460,7 @@ void AFPSEnemyCharacter::Tick(float DeltaSeconds)
 void AFPSEnemyCharacter::ChargeHitPlayer(AActor* Target)
 {
 	EndCharge();
+	MulticastChargeImpact(false);
 	GetCharacterMovement()->StopMovementImmediately();
 
 	// Instant hit (the windup was the warning). Same damage as the normal attack.
@@ -482,6 +486,7 @@ void AFPSEnemyCharacter::ChargeHitPlayer(AActor* Target)
 void AFPSEnemyCharacter::ChargeHitWall()
 {
 	EndCharge();
+	MulticastChargeImpact(true);
 	GetCharacterMovement()->StopMovementImmediately();
 
 	// Stunned tag = the AI stands still (same path as Shockwave's stun). Server only, no replication needed.
@@ -497,6 +502,7 @@ void AFPSEnemyCharacter::ClearWallStun()
 	{
 		bWallStunned = false;
 		AbilitySystemComponent->RemoveLooseGameplayTag(FPSTags::State_Stunned);
+		MulticastWallStunEnd();
 	}
 }
 
@@ -507,6 +513,10 @@ void AFPSEnemyCharacter::EndCharge()
 		return;
 	}
 
+	if (ChargeState == EFPSChargeState::Running)
+	{
+		MulticastChargeRunEnded(); // windup-only ends never sped the anim up, nothing to undo
+	}
 	ChargeState = EFPSChargeState::None;
 	ChargeTarget = nullptr;
 	SetActorTickEnabled(false);
@@ -521,6 +531,27 @@ void AFPSEnemyCharacter::EndCharge()
 	}
 
 	NextChargeTime = GetWorld()->GetTimeSeconds() + ChargeCooldown;
+}
+
+void AFPSEnemyCharacter::MulticastChargeRunStarted_Implementation()
+{
+	GetMesh()->GlobalAnimRateScale = ChargeAnimPlayRate;
+	OnChargeRunStarted();
+}
+
+void AFPSEnemyCharacter::MulticastChargeRunEnded_Implementation()
+{
+	GetMesh()->GlobalAnimRateScale = 1.f;
+}
+
+void AFPSEnemyCharacter::MulticastChargeImpact_Implementation(bool bHitWall)
+{
+	OnChargeImpact(bHitWall);
+}
+
+void AFPSEnemyCharacter::MulticastWallStunEnd_Implementation()
+{
+	OnWallStunEnd();
 }
 
 void AFPSEnemyCharacter::MulticastChargeWindup_Implementation()
